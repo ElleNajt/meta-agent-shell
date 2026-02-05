@@ -368,13 +368,16 @@ Returns list of matches with :line and :context."
 ;;;###autoload
 (defun meta-agent-shell-send-to-session (buffer-name message)
   "Send MESSAGE to the agent-shell session in BUFFER-NAME.
+Prepends the message with sender info from current buffer.
 Returns t on success, nil if buffer not found or not an active session."
-  (let ((buffer (get-buffer buffer-name)))
+  (let* ((from-buffer (buffer-name))
+         (buffer (get-buffer buffer-name))
+         (formatted-message (format "Agent in %s sent:\n\n%s" from-buffer message)))
     (if (and buffer
              (buffer-live-p buffer)
              (memq buffer (agent-shell-buffers)))
         (with-current-buffer buffer
-          (shell-maker-submit :input message)
+          (shell-maker-submit :input formatted-message)
           t)
       nil)))
 
@@ -394,9 +397,9 @@ Returns t on success, nil if no matching session found."
   "Ask QUESTION to the agent-shell session for PROJECT-NAME.
 The question is wrapped with instructions to send the reply back
 to the meta-agent session. Returns t on success, nil if not found."
-  (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name))
-        (meta-buffer-name (when meta-agent-shell--buffer
-                            (buffer-name meta-agent-shell--buffer))))
+  (let* ((target-buffer (meta-agent-shell--find-buffer-by-project project-name))
+         (meta-buffer-name (when meta-agent-shell--buffer
+                             (buffer-name meta-agent-shell--buffer))))
     (when (and target-buffer meta-buffer-name)
       (with-current-buffer target-buffer
         (shell-maker-submit

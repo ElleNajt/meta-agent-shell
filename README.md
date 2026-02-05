@@ -2,6 +2,8 @@
 
 A supervisory agent for [agent-shell](https://github.com/xenodium/agent-shell) sessions. Monitor all your active Claude sessions, search across them, send messages between agents, and manage your fleet of AI agents.
 
+![Meta-agent shell screenshot](docs/screenshot.png)
+
 ## Features
 
 - **Heartbeat monitoring** - Periodic status updates with all active sessions
@@ -146,6 +148,10 @@ The meta-agent needs permissions to use its tools (emacsclient --eval). Consider
 - **Coordinate work**: "Tell the secretary agent to prioritize the email task"
 - **Clean up**: "Close all the idle sessions"
 - **Status report**: "Give me a summary of what all agents accomplished today"
+
+## TODO
+
+- [ ] Project-level managers: support managers for groups of agents working on the same project (e.g., coordinate multiple claudes in the same codebase)
 
 ## License
 
