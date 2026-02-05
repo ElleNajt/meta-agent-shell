@@ -5,7 +5,7 @@
 ;; Author: Elle Najt
 ;; URL: https://github.com/ElleNajt/meta-agent-shell
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.33.1") (agent-shell-to-go "0.2.0"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.33.1"))
 ;; Keywords: convenience, tools, ai
 
 ;; This file is not part of GNU Emacs.
@@ -18,7 +18,7 @@
 ;;
 ;; Quick start:
 ;;    (use-package meta-agent-shell
-;;      :after agent-shell-to-go
+;;      :after agent-shell
 ;;      :config
 ;;      (setq meta-agent-shell-heartbeat-file "~/heartbeat.org")
 ;;      (meta-agent-shell-start)
@@ -28,12 +28,13 @@
 
 ;;; Code:
 
-(require 'agent-shell-to-go)
+(require 'agent-shell)
+(require 'shell-maker)
 (require 'cl-lib)
 
 (defgroup meta-agent-shell nil
   "Supervisory agent for agent-shell sessions."
-  :group 'agent-shell-to-go
+  :group 'agent-shell
   :prefix "meta-agent-shell-")
 
 ;;; Configuration
@@ -72,6 +73,16 @@ If you've messaged the meta session within this time, heartbeat is delayed."
   :type 'string
   :group 'meta-agent-shell)
 
+(defcustom meta-agent-shell-start-function #'agent-shell
+  "Function to start a new agent-shell session."
+  :type 'function
+  :group 'meta-agent-shell)
+
+(defcustom meta-agent-shell-start-function-args nil
+  "Arguments to pass to `meta-agent-shell-start-function'."
+  :type 'list
+  :group 'meta-agent-shell)
+
 ;;; State
 
 (defvar meta-agent-shell--heartbeat-timer nil
@@ -86,24 +97,34 @@ Used to implement cooldown before sending heartbeat.")
 
 ;;; Helper functions
 
-(defun meta-agent-shell--format-time-ago (timestamp)
-  "Format TIMESTAMP as relative time (e.g., '5m ago')."
-  (if (null timestamp)
-      "never"
-    (let* ((elapsed (- (float-time) timestamp))
-           (minutes (floor (/ elapsed 60)))
-           (hours (floor (/ elapsed 3600))))
-      (cond
-       ((< elapsed 60) "just now")
-       ((< minutes 60) (format "%dm ago" minutes))
-       ((< hours 24) (format "%dh ago" hours))
-       (t (format "%dd ago" (floor (/ elapsed 86400))))))))
+(defun meta-agent-shell--get-project-path ()
+  "Get project path for current buffer.
+Uses projectile if available, otherwise `default-directory'."
+  (or (and (fboundp 'projectile-project-root)
+           (projectile-project-root))
+      default-directory))
+
+(defun meta-agent-shell--active-buffers ()
+  "Return list of active agent-shell buffers, excluding meta buffer."
+  (cl-remove-if (lambda (buf)
+                  (eq buf meta-agent-shell--buffer))
+                (agent-shell-buffers)))
+
+(defun meta-agent-shell--find-buffer-by-project (project-name)
+  "Find agent-shell buffer for PROJECT-NAME.
+Returns the buffer or nil if not found."
+  (cl-find-if (lambda (buf)
+                (with-current-buffer buf
+                  (let* ((project-path (meta-agent-shell--get-project-path))
+                         (name (file-name-nondirectory (directory-file-name project-path))))
+                    (string-equal-ignore-case name project-name))))
+              (meta-agent-shell--active-buffers)))
 
 (defun meta-agent-shell--get-buffer-status (buffer)
   "Get status info for BUFFER as a plist."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
-      (let* ((project-path (agent-shell-to-go--get-project-path))
+      (let* ((project-path (meta-agent-shell--get-project-path))
              (project-name (file-name-nondirectory (directory-file-name project-path)))
              (busy (and (fboundp 'shell-maker-busy) (shell-maker-busy)))
              (mode-id (and (boundp 'agent-shell--state)
@@ -112,12 +133,7 @@ Used to implement cooldown before sending heartbeat.")
               :project project-name
               :project-path project-path
               :status (if busy "working" "ready")
-              :mode (or mode-id "default")
-              :channel (bound-and-true-p agent-shell-to-go--channel-id)
-              :thread (bound-and-true-p agent-shell-to-go--thread-ts)
-              :last-activity (bound-and-true-p agent-shell-to-go--last-activity)
-              :last-activity-ago (meta-agent-shell--format-time-ago
-                                  (bound-and-true-p agent-shell-to-go--last-activity)))))))
+              :mode (or mode-id "default"))))))
 
 (defun meta-agent-shell--get-buffer-recent-output (buffer n-lines)
   "Get last N-LINES of output from BUFFER."
@@ -135,8 +151,7 @@ Used to implement cooldown before sending heartbeat.")
                               (with-temp-buffer
                                 (insert-file-contents heartbeat-file)
                                 (buffer-string))))
-         (active-sessions (cl-remove-if-not #'buffer-live-p
-                                            agent-shell-to-go--active-buffers))
+         (active-sessions (meta-agent-shell--active-buffers))
          (session-infos (mapcar #'meta-agent-shell--get-buffer-status active-sessions))
          (timestamp (format-time-string "%Y-%m-%d %H:%M:%S")))
     (with-temp-buffer
@@ -146,13 +161,12 @@ Used to implement cooldown before sending heartbeat.")
       (if (null session-infos)
           (insert "No active sessions.\n\n")
         (dolist (info session-infos)
-          (let* ((project-path (plist-get info :project-path))
-                 (buffer (get-buffer (plist-get info :buffer)))
+          (let* ((buffer (get-buffer (plist-get info :buffer)))
                  (recent (meta-agent-shell--get-buffer-recent-output
                           buffer meta-agent-shell-heartbeat-recent-lines)))
-            (insert (format "*** %s (%s)\n\n"
+            (insert (format "*** %s [%s]\n\n"
                             (plist-get info :project)
-                            (plist-get info :last-activity-ago)))
+                            (plist-get info :status)))
             (when (and recent (> (length recent) 0))
               (insert "#+begin_example\n")
               (insert recent)
@@ -168,10 +182,9 @@ Used to implement cooldown before sending heartbeat.")
       (buffer-string))))
 
 (defun meta-agent-shell--buffer-alive-p ()
-  "Return non-nil if the meta buffer is alive and has an active session."
+  "Return non-nil if the meta buffer is alive."
   (and meta-agent-shell--buffer
-       (buffer-live-p meta-agent-shell--buffer)
-       (buffer-local-value 'agent-shell-to-go--thread-ts meta-agent-shell--buffer)))
+       (buffer-live-p meta-agent-shell--buffer)))
 
 (defun meta-agent-shell--cooldown-elapsed-p ()
   "Return non-nil if enough time has passed since last user interaction."
@@ -187,13 +200,10 @@ Used to implement cooldown before sending heartbeat.")
   "Send heartbeat message to meta session.
 Only sends if session is alive and cooldown has elapsed."
   (when (meta-agent-shell--buffer-alive-p)
-    (if (not (meta-agent-shell--cooldown-elapsed-p))
-        (agent-shell-to-go--debug "meta heartbeat skipped: cooldown not elapsed")
+    (when (meta-agent-shell--cooldown-elapsed-p)
       (let ((heartbeat-content (meta-agent-shell--format-heartbeat)))
-        (agent-shell-to-go--debug "sending heartbeat to meta session")
         (with-current-buffer meta-agent-shell--buffer
-          (agent-shell-to-go--inject-message
-           (format "HEARTBEAT:\n\n%s" heartbeat-content)))))))
+          (shell-maker-submit :input (format "HEARTBEAT:\n\n%s" heartbeat-content)))))))
 
 ;;; Interactive commands
 
@@ -211,7 +221,7 @@ The session mode is determined by your agent-shell configuration
     (let ((default-directory (expand-file-name meta-agent-shell-directory)))
       ;; Ensure directory exists
       (make-directory default-directory t)
-      (agent-shell)
+      (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
       ;; Track this as the meta buffer
       (setq meta-agent-shell--buffer (current-buffer))
       (message "Meta-agent session started in %s" default-directory))))
@@ -251,17 +261,15 @@ The session mode is determined by your agent-shell configuration
 ;;;###autoload
 (defun meta-agent-shell-list-sessions ()
   "List active agent-shell sessions with details.
-Returns list of plists with :project, :buffer, :status, :last-activity."
+Returns list of plists with :project, :buffer, :status."
   (let ((sessions nil))
-    (dolist (buf agent-shell-to-go--active-buffers)
-      (when (buffer-live-p buf)
-        (let ((info (meta-agent-shell--get-buffer-status buf)))
-          (when info
-            (push (list :project (plist-get info :project)
-                        :buffer (plist-get info :buffer)
-                        :status (plist-get info :status)
-                        :last-activity (plist-get info :last-activity-ago))
-                  sessions)))))
+    (dolist (buf (meta-agent-shell--active-buffers))
+      (let ((info (meta-agent-shell--get-buffer-status buf)))
+        (when info
+          (push (list :project (plist-get info :project)
+                      :buffer (plist-get info :buffer)
+                      :status (plist-get info :status))
+                sessions))))
     (nreverse sessions)))
 
 ;;;###autoload
@@ -278,15 +286,8 @@ Returns last NUM-LINES (default 100) of the buffer content."
 (defun meta-agent-shell-view-project (project-name &optional num-lines)
   "View recent output from session for PROJECT-NAME.
 Returns last NUM-LINES (default 100) of the buffer content."
-  (let ((target-buffer nil)
+  (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name))
         (n (or num-lines 100)))
-    (dolist (buf agent-shell-to-go--active-buffers)
-      (when (and (buffer-live-p buf) (not target-buffer))
-        (with-current-buffer buf
-          (let* ((project-path (agent-shell-to-go--get-project-path))
-                 (name (file-name-nondirectory (directory-file-name project-path))))
-            (when (string-equal-ignore-case name project-name)
-              (setq target-buffer buf))))))
     (when target-buffer
       (meta-agent-shell--get-buffer-recent-output target-buffer n))))
 
@@ -297,7 +298,7 @@ Returns t on success, nil if buffer not found."
   (let ((buffer (get-buffer buffer-name)))
     (if (and buffer
              (buffer-live-p buffer)
-             (memq buffer agent-shell-to-go--active-buffers))
+             (memq buffer (agent-shell-buffers)))
         (progn
           (kill-buffer buffer)
           t)
@@ -307,14 +308,7 @@ Returns t on success, nil if buffer not found."
 (defun meta-agent-shell-close-project (project-name)
   "Close/kill the agent-shell session for PROJECT-NAME.
 Returns t on success, nil if no matching session found."
-  (let ((target-buffer nil))
-    (dolist (buf agent-shell-to-go--active-buffers)
-      (when (and (buffer-live-p buf) (not target-buffer))
-        (with-current-buffer buf
-          (let* ((project-path (agent-shell-to-go--get-project-path))
-                 (name (file-name-nondirectory (directory-file-name project-path))))
-            (when (string-equal-ignore-case name project-name)
-              (setq target-buffer buf))))))
+  (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name)))
     (when target-buffer
       (kill-buffer target-buffer)
       t)))
@@ -326,43 +320,35 @@ Returns list of matches with :project, :buffer, :line, :context.
 CONTEXT-LINES (default 2) controls lines of context around each match."
   (let ((results nil)
         (ctx (or context-lines 2)))
-    (dolist (buf agent-shell-to-go--active-buffers)
-      (when (buffer-live-p buf)
-        (with-current-buffer buf
-          (let* ((project-path (agent-shell-to-go--get-project-path))
-                 (project-name (file-name-nondirectory (directory-file-name project-path))))
-            (save-excursion
-              (goto-char (point-min))
-              (while (re-search-forward pattern nil t)
-                (let* ((line-num (line-number-at-pos))
-                       (start (save-excursion
-                                (forward-line (- ctx))
-                                (point)))
-                       (end (save-excursion
-                              (forward-line (1+ ctx))
+    (dolist (buf (meta-agent-shell--active-buffers))
+      (with-current-buffer buf
+        (let* ((project-path (meta-agent-shell--get-project-path))
+               (project-name (file-name-nondirectory (directory-file-name project-path))))
+          (save-excursion
+            (goto-char (point-min))
+            (while (re-search-forward pattern nil t)
+              (let* ((line-num (line-number-at-pos))
+                     (start (save-excursion
+                              (forward-line (- ctx))
                               (point)))
-                       (context (buffer-substring-no-properties start end)))
-                  (push (list :project project-name
-                              :buffer (buffer-name buf)
-                              :line line-num
-                              :context context)
-                        results))))))))
+                     (end (save-excursion
+                            (forward-line (1+ ctx))
+                            (point)))
+                     (context (buffer-substring-no-properties start end)))
+                (push (list :project project-name
+                            :buffer (buffer-name buf)
+                            :line line-num
+                            :context context)
+                      results)))))))
     (nreverse results)))
 
 ;;;###autoload
 (defun meta-agent-shell-search-project (project-name pattern &optional context-lines)
   "Search session for PROJECT-NAME for PATTERN (regexp).
 Returns list of matches with :line and :context."
-  (let ((target-buffer nil)
+  (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name))
         (results nil)
         (ctx (or context-lines 2)))
-    (dolist (buf agent-shell-to-go--active-buffers)
-      (when (and (buffer-live-p buf) (not target-buffer))
-        (with-current-buffer buf
-          (let* ((project-path (agent-shell-to-go--get-project-path))
-                 (name (file-name-nondirectory (directory-file-name project-path))))
-            (when (string-equal-ignore-case name project-name)
-              (setq target-buffer buf))))))
     (when target-buffer
       (with-current-buffer target-buffer
         (save-excursion
@@ -382,14 +368,13 @@ Returns list of matches with :line and :context."
 ;;;###autoload
 (defun meta-agent-shell-send-to-session (buffer-name message)
   "Send MESSAGE to the agent-shell session in BUFFER-NAME.
-If the target agent is busy, the message is queued automatically.
 Returns t on success, nil if buffer not found or not an active session."
   (let ((buffer (get-buffer buffer-name)))
     (if (and buffer
              (buffer-live-p buffer)
-             (memq buffer agent-shell-to-go--active-buffers))
+             (memq buffer (agent-shell-buffers)))
         (with-current-buffer buffer
-          (agent-shell-to-go--inject-message message)
+          (shell-maker-submit :input message)
           t)
       nil)))
 
@@ -397,19 +382,11 @@ Returns t on success, nil if buffer not found or not an active session."
 (defun meta-agent-shell-send-to-project (project-name message)
   "Send MESSAGE to the agent-shell session for PROJECT-NAME.
 PROJECT-NAME is matched against the project directory name.
-If the target agent is busy, the message is queued automatically.
 Returns t on success, nil if no matching session found."
-  (let ((target-buffer nil))
-    (dolist (buf agent-shell-to-go--active-buffers)
-      (when (and (buffer-live-p buf) (not target-buffer))
-        (with-current-buffer buf
-          (let* ((project-path (agent-shell-to-go--get-project-path))
-                 (name (file-name-nondirectory (directory-file-name project-path))))
-            (when (string-equal-ignore-case name project-name)
-              (setq target-buffer buf))))))
+  (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name)))
     (when target-buffer
       (with-current-buffer target-buffer
-        (agent-shell-to-go--inject-message message)
+        (shell-maker-submit :input message)
         t))))
 
 ;;;###autoload
@@ -420,13 +397,13 @@ Returns the buffer name of the new session, or nil if folder doesn't exist."
   (let ((dir (expand-file-name folder)))
     (if (file-directory-p dir)
         (let ((default-directory dir))
-          (funcall agent-shell-to-go-start-agent-function)
+          (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
           (when initial-message
             (run-at-time 0.5 nil
                          (lambda (buf msg)
                            (when (buffer-live-p buf)
                              (with-current-buffer buf
-                               (agent-shell-to-go--inject-message msg))))
+                               (shell-maker-submit :input msg))))
                          (current-buffer) initial-message))
           (buffer-name (current-buffer)))
       (message "Directory does not exist: %s" dir)
@@ -439,7 +416,7 @@ Returns t on success, nil if buffer not found or not an active session."
   (let ((buffer (get-buffer buffer-name)))
     (if (and buffer
              (buffer-live-p buffer)
-             (memq buffer agent-shell-to-go--active-buffers))
+             (memq buffer (agent-shell-buffers)))
         (with-current-buffer buffer
           (agent-shell-interrupt t)  ; force=t to skip y-or-n-p prompt
           t)
@@ -450,14 +427,7 @@ Returns t on success, nil if buffer not found or not an active session."
   "Interrupt the agent-shell session for PROJECT-NAME.
 PROJECT-NAME is matched against the project directory name.
 Returns t on success, nil if no matching session found."
-  (let ((target-buffer nil))
-    (dolist (buf agent-shell-to-go--active-buffers)
-      (when (and (buffer-live-p buf) (not target-buffer))
-        (with-current-buffer buf
-          (let* ((project-path (agent-shell-to-go--get-project-path))
-                 (name (file-name-nondirectory (directory-file-name project-path))))
-            (when (string-equal-ignore-case name project-name)
-              (setq target-buffer buf))))))
+  (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name)))
     (when target-buffer
       (with-current-buffer target-buffer
         (agent-shell-interrupt t)  ; force=t to skip y-or-n-p prompt

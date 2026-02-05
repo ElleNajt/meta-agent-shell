@@ -1,8 +1,6 @@
 # meta-agent-shell
 
-A supervisory agent for [agent-shell](https://github.com/xenodium/agent-shell) sessions. Monitor all your active Claude sessions, search across them, send messages between agents, and manage your fleet of AI agents from Slack.
-
-Requires [agent-shell-to-go](https://github.com/ElleNajt/agent-shell-to-go) for Slack integration.
+A supervisory agent for [agent-shell](https://github.com/xenodium/agent-shell) sessions. Monitor all your active Claude sessions, search across them, send messages between agents, and manage your fleet of AI agents.
 
 ## Features
 
@@ -17,11 +15,12 @@ Requires [agent-shell-to-go](https://github.com/ElleNajt/agent-shell-to-go) for 
 
 ```elisp
 (use-package meta-agent-shell
-  :after agent-shell-to-go
+  :after agent-shell
   :config
   (setq meta-agent-shell-heartbeat-file "~/heartbeat.org")
-  ;; Optional: auto-start heartbeat
-  ;; (meta-agent-shell-heartbeat-start)
+  ;; Optional: custom start function
+  ;; (setq meta-agent-shell-start-function #'my/agent-shell-start)
+  ;; (setq meta-agent-shell-start-function-args '(nil))
   )
 ```
 
@@ -56,6 +55,10 @@ Requires [agent-shell-to-go](https://github.com/ElleNajt/agent-shell-to-go) for 
 
 ;; How many lines of recent output to include in heartbeat
 (setq meta-agent-shell-heartbeat-recent-lines 50)
+
+;; Custom function to start agent sessions
+(setq meta-agent-shell-start-function #'agent-shell)
+(setq meta-agent-shell-start-function-args nil)
 ```
 
 ## Standing Instructions
@@ -136,7 +139,7 @@ The meta-agent needs permissions to use its tools (emacsclient --eval). Consider
 
 ## Example Use Cases
 
-- **From your phone**: "What's the agent-shell-to-go session working on?"
+- **Check status**: "What are all my agents working on?"
 - **Check for errors**: "Search all sessions for any errors or failures"
 - **Coordinate work**: "Tell the secretary agent to prioritize the email task"
 - **Clean up**: "Close all the idle sessions"
