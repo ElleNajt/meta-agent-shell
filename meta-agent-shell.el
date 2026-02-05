@@ -390,6 +390,46 @@ Returns t on success, nil if no matching session found."
         t))))
 
 ;;;###autoload
+(defun meta-agent-shell-ask-project (project-name question)
+  "Ask QUESTION to the agent-shell session for PROJECT-NAME.
+The question is wrapped with instructions to send the reply back
+to the meta-agent session. Returns t on success, nil if not found."
+  (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name))
+        (meta-buffer-name (when meta-agent-shell--buffer
+                            (buffer-name meta-agent-shell--buffer))))
+    (when (and target-buffer meta-buffer-name)
+      (with-current-buffer target-buffer
+        (shell-maker-submit
+         :input (format "%s
+
+When you have an answer, send it back using:
+emacsclient --eval '(meta-agent-shell-send-to-session \"%s\" \"YOUR_ANSWER_HERE\")'"
+                        question meta-buffer-name))
+        t))))
+
+;;;###autoload
+(defun meta-agent-shell-ask-session (buffer-name question)
+  "Ask QUESTION to the agent-shell session in BUFFER-NAME.
+The question is wrapped with instructions to send the reply back
+to the meta-agent session. Returns t on success, nil if not found."
+  (let ((buffer (get-buffer buffer-name))
+        (meta-buffer-name (when meta-agent-shell--buffer
+                            (buffer-name meta-agent-shell--buffer))))
+    (if (and buffer
+             (buffer-live-p buffer)
+             (memq buffer (agent-shell-buffers))
+             meta-buffer-name)
+        (with-current-buffer buffer
+          (shell-maker-submit
+           :input (format "%s
+
+When you have an answer, send it back using:
+emacsclient --eval '(meta-agent-shell-send-to-session \"%s\" \"YOUR_ANSWER_HERE\")'"
+                          question meta-buffer-name))
+          t)
+      nil)))
+
+;;;###autoload
 (defun meta-agent-shell-start-agent (folder &optional initial-message)
   "Start a new agent-shell session in FOLDER.
 If INITIAL-MESSAGE is provided, send it to the agent after starting.

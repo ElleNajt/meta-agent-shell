@@ -104,6 +104,8 @@ The meta-agent can call these via `emacsclient --eval`:
 | `(meta-agent-shell-search-project "name" "pattern")` | Search one session |
 | `(meta-agent-shell-send-to-project "name" "msg")` | Send message to agent |
 | `(meta-agent-shell-send-to-session "buffer" "msg")` | Send by buffer name |
+| `(meta-agent-shell-ask-project "name" "question")` | Ask and get reply back |
+| `(meta-agent-shell-ask-session "buffer" "question")` | Ask by buffer name |
 | `(meta-agent-shell-close-project "name")` | Close/kill session |
 | `(meta-agent-shell-interrupt-project "name")` | Interrupt running agent |
 | `(meta-agent-shell-start-agent "~/path" "msg")` | Start new agent |
