@@ -27,6 +27,12 @@ agent-ask "target-buffer" "question"
 
 # Find out your own buffer name
 agent-whoami
+
+# Search all agent sessions for a pattern
+agent-search "pattern"
+
+# Search a specific project's sessions
+agent-search "pattern" projectname
 ```
 
 Examples:
@@ -71,6 +77,28 @@ agent-send "(myproject)-Main" "All tests passing"
 ## Task Management (Optional)
 
 If a project uses task tracking, tasks live in `.tasks/current.org`. If the file doesn't exist and you want to track tasks, create it.
+
+## When to Use a Worktree
+
+Ask yourself: "Will my uncommitted changes get in anyone's way, or could I lose work if someone else commits?"
+
+If yes, create a worktree:
+```bash
+git worktree add ../projectname-taskname -b task-branch
+cd ../projectname-taskname
+# ... do work, commit ...
+# when done, merge or PR back
+```
+
+**Use a worktree when:**
+- Editing multiple files as part of one change
+- Work that needs intermediate commits before it's ready
+- Changes you might revert entirely
+
+**Stay in main tree when:**
+- Single file edits
+- Adding a new file
+- Running tests, reading code, exploration
 
 ## Key Points
 
