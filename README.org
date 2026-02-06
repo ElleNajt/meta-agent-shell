@@ -51,6 +51,14 @@ agent-whoami                          # print own buffer name
 
 Agents are taught these tools via =agent-overview.md= (included in setup).
 
+These work because the scripts pass the shell's PID (~$$~), and the system walks up the process tree to find the ACP client:
+
+#+begin_example
+$$ (shell) → zsh → claude → node (ACP client)
+#+end_example
+
+Each agent-shell buffer owns an ACP client process. Match the PID, find the buffer. So agents identify themselves without knowing their buffer name.
+
 ** Task tracking
 
 Dispatchers write tasks to =.tasks/current.org= in the project:
@@ -64,16 +72,6 @@ Dispatchers write tasks to =.tasks/current.org= in the project:
 
 Add =.tasks/= to your =org-agenda-files= and tasks show up in your agenda.
 
-* How Agent Identity Works
-
-When an agent runs ~agent-whoami~, it passes its shell PID. The system walks up the process tree:
-
-#+begin_example
-$$ (shell) → zsh → claude → node (ACP client)
-#+end_example
-
-Each agent-shell buffer owns an ACP client process. Match the PID, find the buffer. Agents identify themselves without knowing their buffer name.
-
 * Logging
 
 All inter-agent messages logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.jsonl=:
@@ -84,7 +82,7 @@ All inter-agent messages logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.json
 
 * Heartbeat (Optional)
 
-Periodic status updates to a meta-agent. See =M-x describe-function meta-agent-shell-heartbeat-start=.
+Periodic status updates to a meta-agent. See ~M-x describe-function meta-agent-shell-heartbeat-start~.
 
 * License
 
