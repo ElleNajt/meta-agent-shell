@@ -90,6 +90,13 @@ These are passed as the first argument (e.g., prefix arg)."
   :type 'string
   :group 'meta-agent-shell)
 
+(defcustom meta-agent-shell-after-spawn-hook nil
+  "Hook run after spawning a new named agent.
+Called with the new agent buffer as the current buffer.
+Useful for window management, e.g., splitting windows."
+  :type 'hook
+  :group 'meta-agent-shell)
+
 (defcustom meta-agent-shell-restrict-targets nil
   "When non-nil, only allow messaging buffers in `meta-agent-shell-allowed-targets'.
 Set to t for sandboxed workflows where dispatcher has limited permissions."
@@ -628,6 +635,8 @@ as its second argument for this to work cleanly."
           ;; Auto-register if restrictions are enabled or explicitly requested
           (when (or auto-allow meta-agent-shell-restrict-targets)
             (meta-agent-shell-allow-target buffer-name))
+          ;; Run spawn hook (e.g., for window splitting)
+          (run-hooks 'meta-agent-shell-after-spawn-hook)
           (when initial-message
             (run-at-time 0.5 nil
                          (lambda (buf msg)
@@ -664,9 +673,9 @@ Returns t on success, nil if no matching session found."
         t))))
 
 ;;;###autoload
-(defun meta-agent-shell-interrupt-all ()
+(defun meta-agent-shell-big-red-button ()
   "Interrupt ALL agent-shell sessions immediately.
-Panic button - stops all agents including meta-agent and dispatchers.
+Big red button - stops all agents including meta-agent and dispatchers.
 Returns the number of sessions interrupted."
   (interactive)
   (let ((count 0))
