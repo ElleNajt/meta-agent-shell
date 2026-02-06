@@ -83,6 +83,11 @@ If you've messaged the meta session within this time, heartbeat is delayed."
   :type 'list
   :group 'meta-agent-shell)
 
+(defcustom meta-agent-shell-log-directory "~/.meta-agent-shell/logs/"
+  "Directory for ICC (inter-Claude communication) logs."
+  :type 'string
+  :group 'meta-agent-shell)
+
 ;;; State
 
 (defvar meta-agent-shell--heartbeat-timer nil
@@ -95,7 +100,71 @@ If you've messaged the meta session within this time, heartbeat is delayed."
   "Timestamp of last user message to meta session.
 Used to implement cooldown before sending heartbeat.")
 
+(defvar meta-agent-shell--dispatchers nil
+  "Alist of (project-path . dispatcher-buffer) for active project dispatchers.
+Dispatchers route messages to the appropriate agent within a project.")
+
+;;; ICC Logging
+
+(defun meta-agent-shell--log-icc (from to message &optional type)
+  "Log inter-Claude communication as JSONL.
+FROM is the sender, TO is the recipient, MESSAGE is the content.
+TYPE is optional, defaults to \"ask\"."
+  (let* ((log-dir (expand-file-name meta-agent-shell-log-directory))
+         (log-file (expand-file-name
+                    (format "%s-icc.jsonl" (format-time-string "%Y-%m-%d"))
+                    log-dir))
+         (timestamp (format-time-string "%Y-%m-%dT%H:%M:%S"))
+         (msg-type (or type "ask"))
+         (entry (json-encode
+                 `((timestamp . ,timestamp)
+                   (type . ,msg-type)
+                   (from . ,from)
+                   (to . ,to)
+                   (message . ,message)))))
+    (make-directory log-dir t)
+    (with-temp-buffer
+      (insert entry "\n")
+      (append-to-file (point-min) (point-max) log-file))))
+
 ;;; Helper functions
+
+(defun meta-agent-shell--get-ppid (pid)
+  "Get parent PID of PID using ps command."
+  (let ((output (shell-command-to-string (format "ps -o ppid= -p %d" pid))))
+    (when (string-match "\\([0-9]+\\)" output)
+      (string-to-number (match-string 1 output)))))
+
+(defun meta-agent-shell--get-ancestor-pids (pid)
+  "Get list of ancestor PIDs for PID, walking up the process tree."
+  (let ((ancestors nil)
+        (current-pid pid)
+        (max-depth 10))
+    (while (and current-pid (> current-pid 1) (> max-depth 0))
+      (push current-pid ancestors)
+      (setq current-pid (meta-agent-shell--get-ppid current-pid))
+      (cl-decf max-depth))
+    (nreverse ancestors)))
+
+(defun meta-agent-shell--find-buffer-by-client-pid (pid)
+  "Find agent-shell buffer whose ACP client process is an ancestor of PID.
+Returns buffer name or nil if not found."
+  (let ((ancestors (meta-agent-shell--get-ancestor-pids pid)))
+    (cl-loop for buf in (agent-shell-buffers)
+             for client-proc = (with-current-buffer buf
+                                 (when (boundp 'agent-shell--state)
+                                   (map-nested-elt agent-shell--state '(:client :process))))
+             for client-pid = (when (and client-proc (process-live-p client-proc))
+                                (process-id client-proc))
+             when (and client-pid (member client-pid ancestors))
+             return (buffer-name buf))))
+
+;;;###autoload
+(defun meta-agent-shell-whoami (pid)
+  "Return the buffer name of the agent-shell session that owns process PID.
+PID should be the shell's $$ or a descendant process.
+Returns buffer name or nil if not found."
+  (meta-agent-shell--find-buffer-by-client-pid pid))
 
 (defun meta-agent-shell--get-project-path ()
   "Get project path for current buffer.
@@ -104,10 +173,16 @@ Uses projectile if available, otherwise `default-directory'."
            (projectile-project-root))
       default-directory))
 
+(defun meta-agent-shell--dispatcher-buffer-p (buf)
+  "Return non-nil if BUF is a dispatcher buffer."
+  (cl-some (lambda (entry) (eq (cdr entry) buf))
+           meta-agent-shell--dispatchers))
+
 (defun meta-agent-shell--active-buffers ()
-  "Return list of active agent-shell buffers, excluding meta buffer."
+  "Return list of active agent-shell buffers, excluding meta and dispatchers."
   (cl-remove-if (lambda (buf)
-                  (eq buf meta-agent-shell--buffer))
+                  (or (eq buf meta-agent-shell--buffer)
+                      (meta-agent-shell--dispatcher-buffer-p buf)))
                 (agent-shell-buffers)))
 
 (defun meta-agent-shell--find-buffer-by-project (project-name)
@@ -153,6 +228,7 @@ Returns the buffer or nil if not found."
                                 (buffer-string))))
          (active-sessions (meta-agent-shell--active-buffers))
          (session-infos (mapcar #'meta-agent-shell--get-buffer-status active-sessions))
+         (dispatcher-infos (meta-agent-shell-list-dispatchers))
          (timestamp (format-time-string "%Y-%m-%d %H:%M:%S")))
     (with-temp-buffer
       (insert (format "* Heartbeat %s\n\n" timestamp))
@@ -173,6 +249,19 @@ Returns the buffer or nil if not found."
               (unless (string-suffix-p "\n" recent)
                 (insert "\n"))
               (insert "#+end_example\n\n")))))
+      ;; Dispatchers
+      (when dispatcher-infos
+        (insert "** Active Dispatchers\n\n")
+        (dolist (info dispatcher-infos)
+          (let* ((buffer (get-buffer (plist-get info :buffer)))
+                 (busy (and buffer
+                            (buffer-live-p buffer)
+                            (with-current-buffer buffer
+                              (and (fboundp 'shell-maker-busy) (shell-maker-busy))))))
+            (insert (format "*** %s [%s]\n"
+                            (plist-get info :project)
+                            (if busy "working" "ready")))
+            (insert (format "Project path: %s\n\n" (plist-get info :project-path))))))
       ;; User instructions
       (when user-instructions
         (insert "** Instructions\n\n")
@@ -366,69 +455,83 @@ Returns list of matches with :line and :context."
     (nreverse results)))
 
 ;;;###autoload
-(defun meta-agent-shell-send-to-session (buffer-name message)
+(defun meta-agent-shell-send-to-session (buffer-name message &optional from calling-pid)
   "Send MESSAGE to the agent-shell session in BUFFER-NAME.
-Prepends the message with sender info from current buffer.
+Prepends the message with sender info. FROM specifies the sender name.
+If FROM is nil and CALLING-PID is provided, auto-detects sender from PID.
+If both are nil, defaults to \"an agent\".
 Returns t on success, nil if buffer not found or not an active session."
-  (let* ((from-buffer (buffer-name))
+  (let* ((from-name (or from
+                        (when calling-pid
+                          (meta-agent-shell-whoami calling-pid))
+                        "an agent"))
          (buffer (get-buffer buffer-name))
-         (formatted-message (format "Agent in %s sent:\n\n%s" from-buffer message)))
+         (formatted-message (format "Message from %s:\n\n%s" from-name message)))
     (if (and buffer
              (buffer-live-p buffer)
              (memq buffer (agent-shell-buffers)))
-        (with-current-buffer buffer
-          (shell-maker-submit :input formatted-message)
+        (progn
+          (meta-agent-shell--log-icc from-name buffer-name message "send")
+          (with-current-buffer buffer
+            (shell-maker-submit :input formatted-message))
           t)
       nil)))
 
 ;;;###autoload
-(defun meta-agent-shell-send-to-project (project-name message)
+(defun meta-agent-shell-send-to-project (project-name message from)
   "Send MESSAGE to the agent-shell session for PROJECT-NAME.
 PROJECT-NAME is matched against the project directory name.
+FROM specifies the sender name (required).
 Returns t on success, nil if no matching session found."
   (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name)))
     (when target-buffer
-      (with-current-buffer target-buffer
-        (shell-maker-submit :input message)
-        t))))
+      (let ((formatted-message (format "Message from %s:\n\n%s" from message)))
+        (meta-agent-shell--log-icc from (buffer-name target-buffer) message "send")
+        (with-current-buffer target-buffer
+          (shell-maker-submit :input formatted-message)
+          t)))))
 
 ;;;###autoload
-(defun meta-agent-shell-ask-project (project-name question)
+(defun meta-agent-shell-ask-project (project-name question &optional from)
   "Ask QUESTION to the agent-shell session for PROJECT-NAME.
-The question is wrapped with instructions to send the reply back
-to the meta-agent session. Returns t on success, nil if not found."
-  (let* ((target-buffer (meta-agent-shell--find-buffer-by-project project-name))
-         (meta-buffer-name (when meta-agent-shell--buffer
-                             (buffer-name meta-agent-shell--buffer))))
-    (when (and target-buffer meta-buffer-name)
-      (with-current-buffer target-buffer
-        (shell-maker-submit
-         :input (format "%s
+The question is wrapped with instructions to send the reply back.
+FROM specifies who is asking (buffer name for reply); required.
+Returns t on success, nil if not found."
+  (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name)))
+    (when (and target-buffer from)
+      (let ((target-name (buffer-name target-buffer)))
+        (meta-agent-shell--log-icc from target-name question)
+        (with-current-buffer target-buffer
+          (shell-maker-submit
+           :input (format "Question from %s:
 
-When you have an answer, send it back using:
-emacsclient --eval '(meta-agent-shell-send-to-session \"%s\" \"YOUR_ANSWER_HERE\")'"
-                        question meta-buffer-name))
-        t))))
+%s
+
+Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
+                          from question from))
+          t)))))
 
 ;;;###autoload
-(defun meta-agent-shell-ask-session (buffer-name question)
+(defun meta-agent-shell-ask-session (buffer-name question &optional from)
   "Ask QUESTION to the agent-shell session in BUFFER-NAME.
-The question is wrapped with instructions to send the reply back
-to the meta-agent session. Returns t on success, nil if not found."
-  (let ((buffer (get-buffer buffer-name))
-        (meta-buffer-name (when meta-agent-shell--buffer
-                            (buffer-name meta-agent-shell--buffer))))
+The question is wrapped with instructions to send the reply back.
+FROM specifies who is asking (buffer name for reply); required.
+Returns t on success, nil if not found."
+  (let ((buffer (get-buffer buffer-name)))
     (if (and buffer
              (buffer-live-p buffer)
              (memq buffer (agent-shell-buffers))
-             meta-buffer-name)
-        (with-current-buffer buffer
-          (shell-maker-submit
-           :input (format "%s
+             from)
+        (progn
+          (meta-agent-shell--log-icc from buffer-name question)
+          (with-current-buffer buffer
+            (shell-maker-submit
+             :input (format "Question from %s:
 
-When you have an answer, send it back using:
-emacsclient --eval '(meta-agent-shell-send-to-session \"%s\" \"YOUR_ANSWER_HERE\")'"
-                          question meta-buffer-name))
+%s
+
+Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
+                            from question from)))
           t)
       nil)))
 
@@ -441,6 +544,30 @@ Returns the buffer name of the new session, or nil if folder doesn't exist."
     (if (file-directory-p dir)
         (let ((default-directory dir))
           (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
+          (when initial-message
+            (run-at-time 0.5 nil
+                         (lambda (buf msg)
+                           (when (buffer-live-p buf)
+                             (with-current-buffer buf
+                               (shell-maker-submit :input msg))))
+                         (current-buffer) initial-message))
+          (buffer-name (current-buffer)))
+      (message "Directory does not exist: %s" dir)
+      nil)))
+
+;;;###autoload
+(defun meta-agent-shell-start-named-agent (folder name &optional initial-message)
+  "Start a new named agent-shell session in FOLDER with NAME.
+The buffer will be named \"(ProjectName)-NAME\".
+If INITIAL-MESSAGE is provided, send it to the agent after starting.
+Returns the buffer name of the new session, or nil if folder doesn't exist."
+  (let ((dir (expand-file-name folder)))
+    (if (file-directory-p dir)
+        (let* ((default-directory dir)
+               (project-name (file-name-nondirectory (directory-file-name dir)))
+               (buffer-name (format "(%s)-%s" project-name name)))
+          (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
+          (shell-maker-set-buffer-name (current-buffer) buffer-name)
           (when initial-message
             (run-at-time 0.5 nil
                          (lambda (buf msg)
@@ -475,6 +602,169 @@ Returns t on success, nil if no matching session found."
       (with-current-buffer target-buffer
         (agent-shell-interrupt t)  ; force=t to skip y-or-n-p prompt
         t))))
+
+;;; Dispatcher functions - project-level message routing
+
+;;;###autoload
+(defun meta-agent-shell-start-dispatcher (project-path)
+  "Start a dispatcher for PROJECT-PATH.
+Creates a new agent session in ~/.claude-meta/dispatchers/{project-name}/
+with instructions for routing messages to agents in that project.
+Returns the dispatcher buffer name, or nil if already exists.
+When called interactively, uses the current buffer's project."
+  (interactive (list (meta-agent-shell--get-project-path)))
+  (let* ((project-path (expand-file-name project-path))
+         (project-name (file-name-nondirectory (directory-file-name project-path)))
+         (existing (assoc project-path meta-agent-shell--dispatchers)))
+    (if (and existing (buffer-live-p (cdr existing)))
+        (progn
+          (message "Dispatcher for %s already exists" project-name)
+          (pop-to-buffer (cdr existing))
+          nil)
+      ;; Remove stale entry if buffer is dead
+      (when existing
+        (setq meta-agent-shell--dispatchers
+              (assoc-delete-all project-path meta-agent-shell--dispatchers)))
+      ;; Create dispatcher
+      (let* ((dispatcher-dir (expand-file-name
+                              (concat "dispatchers/" project-name "/")
+                              meta-agent-shell-directory))
+             (claude-md-link (expand-file-name "CLAUDE.md" dispatcher-dir))
+             (claude-md-target (expand-file-name "dispatcher-claude.md"
+                                                 (file-name-directory
+                                                  (or load-file-name buffer-file-name
+                                                      "/Users/elle/code/meta-agent-shell/"))))
+             (dispatcher-buffer-name (format "(%s)-Dispatcher" project-name))
+             (default-directory dispatcher-dir))
+        (make-directory dispatcher-dir t)
+        ;; Create CLAUDE.md symlink if it doesn't exist
+        (unless (file-exists-p claude-md-link)
+          (make-symbolic-link claude-md-target claude-md-link))
+        (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
+        ;; Rename buffer using shell-maker's function
+        (shell-maker-set-buffer-name (current-buffer) dispatcher-buffer-name)
+        (let ((buf (current-buffer)))
+          ;; Register dispatcher
+          (push (cons project-path buf) meta-agent-shell--dispatchers)
+          (message "Dispatcher started for %s" project-name)
+          (buffer-name buf))))))
+
+;;;###autoload
+(defun meta-agent-shell-get-project-agents (project-path)
+  "Get all agent sessions working in PROJECT-PATH.
+Returns list of buffer names for agents in that project."
+  (let ((project-path (expand-file-name project-path))
+        (results nil))
+    (dolist (buf (meta-agent-shell--active-buffers))
+      (with-current-buffer buf
+        (let ((buf-project (expand-file-name (meta-agent-shell--get-project-path))))
+          (when (string-prefix-p project-path buf-project)
+            (push (buffer-name buf) results)))))
+    (nreverse results)))
+
+;;;###autoload
+(defun meta-agent-shell-list-dispatchers ()
+  "List active dispatchers with their project paths.
+Returns alist of (project-name . buffer-name) for live dispatchers."
+  ;; Clean up dead buffers first
+  (setq meta-agent-shell--dispatchers
+        (cl-remove-if-not (lambda (entry) (buffer-live-p (cdr entry)))
+                          meta-agent-shell--dispatchers))
+  (mapcar (lambda (entry)
+            (let ((project-name (file-name-nondirectory
+                                 (directory-file-name (car entry)))))
+              (list :project project-name
+                    :project-path (car entry)
+                    :buffer (buffer-name (cdr entry)))))
+          meta-agent-shell--dispatchers))
+
+;;;###autoload
+(defun meta-agent-shell-send-to-dispatcher (project-name message from)
+  "Send MESSAGE to the dispatcher for PROJECT-NAME.
+The dispatcher will route it to the appropriate agent.
+FROM specifies the sender name (required).
+Returns t on success, nil if no dispatcher found."
+  (let ((entry (cl-find-if
+                (lambda (e)
+                  (string-equal-ignore-case
+                   project-name
+                   (file-name-nondirectory (directory-file-name (car e)))))
+                meta-agent-shell--dispatchers)))
+    (if (and entry (buffer-live-p (cdr entry)))
+        (let* ((dispatcher-name (buffer-name (cdr entry)))
+               (formatted-message (format "Message from %s:\n\n%s" from message)))
+          (meta-agent-shell--log-icc from dispatcher-name message "send")
+          (with-current-buffer (cdr entry)
+            (shell-maker-submit :input formatted-message)
+            t))
+      nil)))
+
+;;;###autoload
+(defun meta-agent-shell-ask-dispatcher (project-name question &optional from)
+  "Ask QUESTION to the dispatcher for PROJECT-NAME.
+The dispatcher is instructed to send the reply back.
+FROM specifies who is asking (buffer name for reply); required.
+Returns t on success, nil if no dispatcher found."
+  (let ((entry (cl-find-if
+                (lambda (e)
+                  (string-equal-ignore-case
+                   project-name
+                   (file-name-nondirectory (directory-file-name (car e)))))
+                meta-agent-shell--dispatchers)))
+    (if (and entry (buffer-live-p (cdr entry)) from)
+        (let ((dispatcher-name (buffer-name (cdr entry))))
+          (meta-agent-shell--log-icc from dispatcher-name question)
+          (with-current-buffer (cdr entry)
+            (shell-maker-submit
+             :input (format "Question from %s:
+
+%s
+
+Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
+                            from question from))
+            t))
+      nil)))
+
+;;;###autoload
+(defun meta-agent-shell-close-dispatcher (project-name)
+  "Close the dispatcher for PROJECT-NAME.
+Returns t on success, nil if no dispatcher found."
+  (interactive
+   (list (completing-read "Close dispatcher for project: "
+                          (mapcar (lambda (e)
+                                    (file-name-nondirectory
+                                     (directory-file-name (car e))))
+                                  meta-agent-shell--dispatchers))))
+  (let ((entry (cl-find-if
+                (lambda (e)
+                  (string-equal-ignore-case
+                   project-name
+                   (file-name-nondirectory (directory-file-name (car e)))))
+                meta-agent-shell--dispatchers)))
+    (if entry
+        (progn
+          (when (buffer-live-p (cdr entry))
+            (kill-buffer (cdr entry)))
+          (setq meta-agent-shell--dispatchers
+                (cl-remove entry meta-agent-shell--dispatchers))
+          (message "Dispatcher for %s closed" project-name)
+          t)
+      (message "No dispatcher found for %s" project-name)
+      nil)))
+
+;;;###autoload
+(defun meta-agent-shell-view-dispatcher (project-name &optional num-lines)
+  "View recent output from the dispatcher for PROJECT-NAME.
+Returns last NUM-LINES (default 100) of the buffer content."
+  (let ((entry (cl-find-if
+                (lambda (e)
+                  (string-equal-ignore-case
+                   project-name
+                   (file-name-nondirectory (directory-file-name (car e)))))
+                meta-agent-shell--dispatchers))
+        (n (or num-lines 100)))
+    (when (and entry (buffer-live-p (cdr entry)))
+      (meta-agent-shell--get-buffer-recent-output (cdr entry) n))))
 
 (provide 'meta-agent-shell)
 ;;; meta-agent-shell.el ends here
