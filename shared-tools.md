@@ -24,11 +24,16 @@ Tools available via `emacsclient --eval '(...)'`.
 
 | Function | Description |
 |----------|-------------|
-| `(meta-agent-shell-start-named-agent "~/path" "Name" "msg")` | Start named agent |
+| `(meta-agent-shell-start-named-agent "~/path" "Name" "task")` | Start named agent with initial task |
 | `(meta-agent-shell-close-session "buffer")` | Close/kill session |
 | `(meta-agent-shell-interrupt-session "buffer")` | Stop a runaway agent |
 
+**Always include the initial task** when spawning - saves a separate send call.
+
 ## Buffer Naming
 
-- **Agents**: `(ProjectName)-AgentName` e.g. `(myproject)-Refactor`
-- **Dispatchers**: `(ProjectName)-Dispatcher` e.g. `(myproject)-Dispatcher`
+Full buffer names include the agent-shell suffix:
+- **Agents**: `(ProjectName)-AgentName Agent @ projectname` 
+- **Dispatchers**: `(ProjectName)-Dispatcher Agent @ projectname`
+
+Example: `(myproject)-Refactor Agent @ myproject`

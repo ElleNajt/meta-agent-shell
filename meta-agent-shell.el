@@ -74,12 +74,14 @@ If you've messaged the meta session within this time, heartbeat is delayed."
   :group 'meta-agent-shell)
 
 (defcustom meta-agent-shell-start-function #'agent-shell
-  "Function to start a new agent-shell session."
+  "Function to start a new agent-shell session.
+Should accept optional BUFFER-NAME as second argument for named agents."
   :type 'function
   :group 'meta-agent-shell)
 
 (defcustom meta-agent-shell-start-function-args nil
-  "Arguments to pass to `meta-agent-shell-start-function'."
+  "Arguments to pass to `meta-agent-shell-start-function'.
+These are passed as the first argument (e.g., prefix arg)."
   :type 'list
   :group 'meta-agent-shell)
 
@@ -602,14 +604,19 @@ The buffer will be named \"(ProjectName)-NAME\".
 If INITIAL-MESSAGE is provided, send it to the agent after starting.
 If AUTO-ALLOW is non-nil (or `meta-agent-shell-restrict-targets' is t),
 automatically add the new buffer to the allowed targets list.
-Returns the buffer name of the new session, or nil if folder doesn't exist."
+Returns the buffer name of the new session, or nil if folder doesn't exist.
+
+Note: `meta-agent-shell-start-function' should accept an optional buffer-name
+as its second argument for this to work cleanly."
   (let ((dir (expand-file-name folder)))
     (if (file-directory-p dir)
         (let* ((default-directory dir)
                (project-name (file-name-nondirectory (directory-file-name dir)))
                (buffer-name (format "(%s)-%s" project-name name)))
-          (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
-          (shell-maker-set-buffer-name (current-buffer) buffer-name)
+          ;; Pass buffer-name as second arg to start function
+          (funcall meta-agent-shell-start-function
+                   (car meta-agent-shell-start-function-args)
+                   buffer-name)
           ;; Auto-register if restrictions are enabled or explicitly requested
           (when (or auto-allow meta-agent-shell-restrict-targets)
             (meta-agent-shell-allow-target buffer-name))
@@ -666,10 +673,48 @@ Returns the number of sessions interrupted."
 ;;; Dispatcher functions - project-level message routing
 
 ;;;###autoload
+(defconst meta-agent-shell--dispatcher-instructions
+  "You are a **project dispatcher**. Your job is to route work to agents and coordinate them.
+
+## Key Principles
+
+1. **Route work, don't do it yourself.** Find the right agent and delegate.
+2. **Use `agent-ask` when you need a response.** The reply arrives automatically.
+3. **Be available for conversation.** The user may want to discuss strategy or priorities.
+
+## Your Tools
+
+List agents in this project:
+```bash
+emacsclient --eval '(meta-agent-shell-get-project-agents \"%s\")'
+```
+
+Spawn a new named agent:
+```bash
+emacsclient --eval '(meta-agent-shell-start-named-agent \"%s\" \"AgentName\" \"initial task\")'
+```
+
+Send a message to an agent:
+```bash
+agent-send \"BUFFER-NAME\" \"message\"
+```
+
+Ask an agent (they'll reply back):
+```bash
+agent-ask \"BUFFER-NAME\" \"question\"
+```
+
+## Workflow
+
+1. Check which agents exist with the list command above
+2. Route to existing agent, or spawn a new named agent for the task
+3. For status checks, use `agent-ask` to query agents"
+  "Instructions sent to dispatchers at startup.
+Contains %s placeholders for project-path.")
+
 (defun meta-agent-shell-start-dispatcher (project-path)
   "Start a dispatcher for PROJECT-PATH.
-Creates a new agent session in ~/.claude-meta/dispatchers/{project-name}/
-with instructions for routing messages to agents in that project.
+The dispatcher runs in PROJECT-PATH itself (same as other agents).
 Returns the dispatcher buffer name, or nil if already exists.
 When called interactively, uses the current buffer's project."
   (interactive (list (meta-agent-shell--get-project-path)))
@@ -685,27 +730,25 @@ When called interactively, uses the current buffer's project."
       (when existing
         (setq meta-agent-shell--dispatchers
               (assoc-delete-all project-path meta-agent-shell--dispatchers)))
-      ;; Create dispatcher
-      (let* ((dispatcher-dir (expand-file-name
-                              (concat "dispatchers/" project-name "/")
-                              meta-agent-shell-directory))
-             (claude-md-link (expand-file-name "CLAUDE.md" dispatcher-dir))
-             (claude-md-target (expand-file-name "dispatcher-claude.md"
-                                                 (file-name-directory
-                                                  (or load-file-name buffer-file-name
-                                                      "/Users/elle/code/meta-agent-shell/"))))
-             (dispatcher-buffer-name (format "(%s)-Dispatcher" project-name))
-             (default-directory dispatcher-dir))
-        (make-directory dispatcher-dir t)
-        ;; Create CLAUDE.md symlink if it doesn't exist
-        (unless (file-exists-p claude-md-link)
-          (make-symbolic-link claude-md-target claude-md-link))
-        (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
-        ;; Rename buffer using shell-maker's function
-        (shell-maker-set-buffer-name (current-buffer) dispatcher-buffer-name)
+      ;; Create dispatcher in the project directory itself
+      (let* ((dispatcher-buffer-name (format "(%s)-Dispatcher" project-name))
+             (default-directory project-path)
+             (instructions (format meta-agent-shell--dispatcher-instructions
+                                   project-path project-path)))
+        ;; Pass buffer-name as second arg to start function
+        (funcall meta-agent-shell-start-function
+                 (car meta-agent-shell-start-function-args)
+                 dispatcher-buffer-name)
         (let ((buf (current-buffer)))
           ;; Register dispatcher
           (push (cons project-path buf) meta-agent-shell--dispatchers)
+          ;; Send instructions after a short delay for initialization
+          (run-at-time 0.5 nil
+                       (lambda (buffer msg)
+                         (when (buffer-live-p buffer)
+                           (with-current-buffer buffer
+                             (shell-maker-submit :input msg))))
+                       buf instructions)
           (message "Dispatcher started for %s" project-name)
           (buffer-name buf))))))
 

@@ -1,32 +1,32 @@
-# Project Dispatcher
+# Project Dispatcher Reference
 
-You are a dispatcher for this project. Your job is to route work to agents and coordinate them.
+This file is kept for reference. Dispatchers now receive their instructions inline when spawned.
 
-## Key Principles
+## Role
 
-1. **Use `ask-*` when you need a response, not `send-*`.** If you want to know what an agent is working on, use `ask-session`. The reply arrives automatically - just wait.
+A dispatcher coordinates agents within a single project:
+- Routes work to the appropriate agent
+- Spawns new agents for tasks
+- Tracks what agents are working on
 
-2. **Route work, don't do it yourself.** Find the right agent and delegate.
+## Key Tools
 
-3. **Be available for conversation.** The user may want to discuss strategy, priorities, or blockers.
+```bash
+# List agents in project
+emacsclient --eval '(meta-agent-shell-get-project-agents "/path/to/project")'
 
-@shared-tools.md
+# Spawn agent with initial task (preferred - single tool call)
+emacsclient --eval '(meta-agent-shell-start-named-agent "/path/to/project" "AgentName" "initial task")'
 
-## Finding Your Agents
+# Send message to agent
+agent-send "BUFFER-NAME" "message"
 
-Check your project path, then list agents:
-
-```elisp
-(meta-agent-shell-get-project-agents "/path/to/your/project/")
+# Ask agent (they reply back)
+agent-ask "BUFFER-NAME" "question"
 ```
 
-## Workflow
+## Principles
 
-**For task requests:**
-1. Check which agents exist with `meta-agent-shell-get-project-agents`
-2. If needed, ask agents what they're working on (use `ask-session`)
-3. Route to the appropriate agent, or spawn a new named agent
-
-**For conversations:**
-- Listen and engage - the user might want to discuss strategy or think through priorities
-- You can ask agents for status updates to inform the discussion
+1. **Delegate, don't implement** - Route work to agents
+2. **Use initial-message** - When spawning, include the task so it's one tool call
+3. **Ask for status** - Use `agent-ask` when you need to know what an agent is doing

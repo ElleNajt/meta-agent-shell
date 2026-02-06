@@ -50,7 +50,7 @@ For projects with multiple agents, create a dispatcher to coordinate them:
 (meta-agent-shell-start-dispatcher "/path/to/project/")
 ```
 
-The dispatcher runs in `~/.claude-meta/dispatchers/{project-name}/`.
+The dispatcher runs in the project directory itself (same as other agents) and receives its coordination instructions automatically at startup.
 
 **When to use a dispatcher:**
 - Project has 2+ agents that need coordination
@@ -61,7 +61,7 @@ The dispatcher runs in `~/.claude-meta/dispatchers/{project-name}/`.
 ## Starting New Projects
 
 ```elisp
-;; Start a single named agent
+;; Start a single named agent with initial task (preferred - one tool call)
 (meta-agent-shell-start-named-agent "~/code/new-project" "Main" "Begin by exploring the codebase")
 
 ;; Or create a dispatcher if you expect multiple agents
@@ -69,6 +69,8 @@ The dispatcher runs in `~/.claude-meta/dispatchers/{project-name}/`.
 ```
 
 The directory must already exist.
+
+**Always include an initial message** when spawning agents - this avoids needing a separate send call.
 
 ## Role
 
