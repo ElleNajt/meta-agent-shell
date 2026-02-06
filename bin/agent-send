@@ -1,0 +1,15 @@
+#!/bin/bash
+# agent-send - Send a message to another agent
+# Usage: agent-send "target-buffer" "message"
+#
+# Automatically detects sender from process hierarchy.
+
+if [ $# -lt 2 ]; then
+    echo "Usage: agent-send \"target-buffer\" \"message\"" >&2
+    exit 1
+fi
+
+target="$1"
+message="$2"
+
+emacsclient --eval "(meta-agent-shell-send-to-session \"$target\" \"$message\" nil $$)"

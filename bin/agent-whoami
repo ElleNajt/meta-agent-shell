@@ -1,0 +1,5 @@
+#!/bin/bash
+# agent-whoami - Print this agent's buffer name
+# Usage: agent-whoami
+
+emacsclient --eval "(meta-agent-shell-whoami $$)" | tr -d '"'
