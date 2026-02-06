@@ -46,12 +46,11 @@ Your identity is auto-detected - you don't need to know your own buffer name.
 
 ## Buffer Naming
 
-Named agents use the format `(ProjectName)-AgentName`:
-- `(myproject)-Refactor`
-- `(myproject)-Tests`
-- `(myproject)-Bugfix`
+Full buffer names include the agent-shell suffix:
+- **Agents**: `AgentName Agent @ projectname` (e.g., `Refactor Agent @ myproject`)
+- **Dispatchers**: `Dispatcher Agent @ projectname`
 
-Dispatchers use `(ProjectName)-Dispatcher`.
+The examples in this doc use short forms for readability, but use exact buffer names from `agent-whoami` or list commands when messaging.
 
 ## When You Receive a Question
 

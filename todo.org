@@ -1,0 +1,7 @@
+#+TITLE: meta-agent-shell TODO
+
+* TODO Investigate agent-shell race condition on buffer reuse
+When spawning an agent with a name that was recently killed, agent-shell sometimes fails.
+Current workaround: retry after 0.5s delay with ~sit-for~ (see ~meta-agent-shell-start-named-agent~).
+
+Root cause likely in agent-shell async cleanup. May need to file upstream issue or find proper fix.

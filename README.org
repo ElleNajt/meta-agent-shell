@@ -33,8 +33,32 @@ Then add to your Emacs config:
 
 #+begin_src elisp
 (use-package meta-agent-shell
-  :after agent-shell)
+  :after agent-shell
+  :config
+  (setq meta-agent-shell-heartbeat-file "~/heartbeat.org")
+  (setq meta-agent-shell-start-function #'agent-shell)  ; or your custom start function
+
+  ;; Recommended keybindings under SPC o m
+  ;; Unbind existing SPC o m (mu4e in Doom) first if needed
+  (define-key doom-leader-map "om" nil)
+  (map! :leader
+        (:prefix ("o m" . "meta-agent")
+         :desc "Meta-agent session" "m" #'meta-agent-shell-start
+         :desc "Project dispatcher" "d" #'meta-agent-shell-jump-to-dispatcher
+         :desc "Start heartbeat" "h" #'meta-agent-shell-heartbeat-start
+         :desc "Stop heartbeat" "H" #'meta-agent-shell-heartbeat-stop
+         :desc "Send heartbeat now" "s" #'meta-agent-shell-heartbeat-send-now
+         :desc "STOP ALL AGENTS" "!" #'meta-agent-shell-big-red-button)))
 #+end_src
+
+| Keybinding  | Command                              | Description                     |
+|-------------+--------------------------------------+---------------------------------|
+| =SPC o m m= | ~meta-agent-shell-start~             | Meta-agent session (start/switch) |
+| =SPC o m d= | ~meta-agent-shell-jump-to-dispatcher~ | Project dispatcher (start/switch) |
+| =SPC o m h= | ~meta-agent-shell-heartbeat-start~   | Start heartbeat timer           |
+| =SPC o m H= | ~meta-agent-shell-heartbeat-stop~    | Stop heartbeat timer            |
+| =SPC o m s= | ~meta-agent-shell-heartbeat-send-now~ | Send heartbeat immediately      |
+| =SPC o m != | ~meta-agent-shell-big-red-button~    | STOP ALL AGENTS                 |
 
 * Workflow 1: Project Dispatchers
 

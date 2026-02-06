@@ -24,7 +24,7 @@
 ;;      (meta-agent-shell-start)
 ;;      (meta-agent-shell-heartbeat-start))
 ;;
-;; See README.md for full setup instructions.
+;; See README.org for full setup instructions.
 
 ;;; Code:
 
@@ -49,12 +49,6 @@ This file is sent periodically to the meta session."
   "Interval in seconds between heartbeat messages.
 Default is 900 (15 minutes)."
   :type 'integer
-  :group 'meta-agent-shell)
-
-(defcustom meta-agent-shell-heartbeat-watch-projects nil
-  "List of project paths to include detailed recent output for in heartbeat.
-If nil, includes summary for all sessions."
-  :type '(repeat string)
   :group 'meta-agent-shell)
 
 (defcustom meta-agent-shell-heartbeat-recent-lines 50
@@ -90,10 +84,17 @@ These are passed as the first argument (e.g., prefix arg)."
   :type 'string
   :group 'meta-agent-shell)
 
+(defcustom meta-agent-shell-before-spawn-hook nil
+  "Hook run before spawning a new named agent.
+Called before the agent is created, useful for setting up window layout.
+The current buffer and default-directory are already set to the project."
+  :type 'hook
+  :group 'meta-agent-shell)
+
 (defcustom meta-agent-shell-after-spawn-hook nil
   "Hook run after spawning a new named agent.
 Called with the new agent buffer as the current buffer.
-Useful for window management, e.g., splitting windows."
+Useful for post-spawn setup that needs the agent buffer."
   :type 'hook
   :group 'meta-agent-shell)
 
@@ -325,10 +326,6 @@ Returns the buffer or nil if not found."
   (or (not meta-agent-shell--last-user-interaction)
       (> (- (float-time) meta-agent-shell--last-user-interaction)
          meta-agent-shell-heartbeat-cooldown)))
-
-(defun meta-agent-shell--record-interaction ()
-  "Record that the user just interacted with meta session."
-  (setq meta-agent-shell--last-user-interaction (float-time)))
 
 (defun meta-agent-shell--send-heartbeat ()
   "Send heartbeat message to meta session.
@@ -620,22 +617,25 @@ as its second argument for this to work cleanly."
         (let* ((default-directory dir)
                (project-name (file-name-nondirectory (directory-file-name dir)))
                (buffer-name name))
+          ;; Run before-spawn hook (e.g., for window layout setup)
+          (run-hooks 'meta-agent-shell-before-spawn-hook)
           ;; Pass buffer-name as second arg to start function
-          ;; Retry once on failure (workaround for race condition after killing buffers)
+          ;; Workaround: agent-shell may fail if a buffer with this name was
+          ;; recently killed (async cleanup race). Retry once after brief delay.
           (condition-case err
               (funcall meta-agent-shell-start-function
                        (car meta-agent-shell-start-function-args)
                        buffer-name)
             (error
-             (message "First agent start attempt failed (%s), retrying..." err)
-             (sleep-for 0.5)
+             (message "Agent start failed (%s), retrying after cleanup delay..." err)
+             (sit-for 0.5)  ; allow pending events to process
              (funcall meta-agent-shell-start-function
                       (car meta-agent-shell-start-function-args)
                       buffer-name)))
           ;; Auto-register if restrictions are enabled or explicitly requested
           (when (or auto-allow meta-agent-shell-restrict-targets)
             (meta-agent-shell-allow-target buffer-name))
-          ;; Run spawn hook (e.g., for window splitting)
+          ;; Run after-spawn hook (e.g., for post-spawn setup)
           (run-hooks 'meta-agent-shell-after-spawn-hook)
           (when initial-message
             (run-at-time 0.5 nil
@@ -757,14 +757,15 @@ When called interactively, uses the current buffer's project."
                                    project-path))
              (buf nil))
         ;; Pass buffer-name as second arg to start function
-        ;; Retry once on failure (workaround for race condition after killing buffers)
+        ;; Workaround: agent-shell may fail if a buffer with this name was
+        ;; recently killed (async cleanup race). Retry once after brief delay.
         (condition-case err
             (funcall meta-agent-shell-start-function
                      (car meta-agent-shell-start-function-args)
                      dispatcher-buffer-name)
           (error
-           (message "First dispatcher start attempt failed (%s), retrying..." err)
-           (sleep-for 0.5)
+           (message "Dispatcher start failed (%s), retrying after cleanup delay..." err)
+           (sit-for 0.5)  ; allow pending events to process
            (funcall meta-agent-shell-start-function
                     (car meta-agent-shell-start-function-args)
                     dispatcher-buffer-name)))

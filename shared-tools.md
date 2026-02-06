@@ -32,8 +32,8 @@ Tools available via `emacsclient --eval '(...)'`.
 
 ## Buffer Naming
 
-Full buffer names include the agent-shell suffix:
-- **Agents**: `(ProjectName)-AgentName Agent @ projectname` 
-- **Dispatchers**: `(ProjectName)-Dispatcher Agent @ projectname`
+Buffer names follow the pattern `AgentName Agent @ projectname`:
+- **Agents**: `Refactor Agent @ myproject`
+- **Dispatchers**: `Dispatcher Agent @ myproject`
 
-Example: `(myproject)-Refactor Agent @ myproject`
+Use `agent-whoami` or `(meta-agent-shell-list-sessions)` to get exact buffer names.
