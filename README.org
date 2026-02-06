@@ -3,7 +3,7 @@
 
 Multi-agent coordination for [[https://github.com/xenodium/agent-shell][agent-shell]]. Dispatchers route work to agents, agents communicate with each other, tasks live in org files that show up in your agenda.
 
-[[file:docs/screenshot.png]]
+[[file:docs/cli-tools.png]]
 
 * What This Does
 
@@ -41,12 +41,24 @@ M-x meta-agent-shell-start-dispatcher
 
 The dispatcher can spawn agents, assign tasks, and coordinate work.
 
+** Jump to dispatcher
+
+#+begin_example
+M-x meta-agent-shell-jump-to-dispatcher
+#+end_example
+
+Jumps to the dispatcher for the current buffer's project. If none exists, offers to create one.
+
 ** Agents communicate via CLI
 
 #+begin_src bash
+agent-spawn "AgentName" "initial task"  # spawn a new named agent
 agent-send "buffer-name" "message"
-agent-ask "buffer-name" "question"   # reply routed back automatically
-agent-whoami                          # print own buffer name
+agent-ask "buffer-name" "question"      # reply routed back automatically
+agent-whoami                            # print own buffer name
+agent-search "pattern"                  # search all sessions for regexp
+agent-search "pattern" projectname      # search specific project
+agent-search "pattern" --context 5      # show 5 lines of context
 #+end_src
 
 Agents are taught these tools via =agent-overview.md= (included in setup).

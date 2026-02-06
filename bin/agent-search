@@ -1,0 +1,51 @@
+#!/bin/bash
+# agent-search - Search agent sessions for a pattern
+#
+# Usage:
+#   agent-search "pattern"              # search all sessions
+#   agent-search "pattern" project      # search sessions for a specific project
+#   agent-search "pattern" --context 5  # show 5 lines of context (default 2)
+
+set -e
+
+if [ $# -lt 1 ]; then
+    echo "Usage: agent-search \"pattern\" [project] [--context N]" >&2
+    echo "" >&2
+    echo "Search agent sessions for a regexp pattern." >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  agent-search \"error\"                # search all sessions" >&2
+    echo "  agent-search \"error\" myproject      # search specific project" >&2
+    echo "  agent-search \"error\" --context 5    # more context lines" >&2
+    exit 1
+fi
+
+pattern="$1"
+shift
+
+project=""
+context=2
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --context|-c)
+            context="$2"
+            shift 2
+            ;;
+        *)
+            project="$1"
+            shift
+            ;;
+    esac
+done
+
+# Escape pattern for elisp string
+escaped_pattern=$(printf '%s' "$pattern" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+if [ -n "$project" ]; then
+    # Search specific project
+    emacsclient --eval "(meta-agent-shell-search-project \"$project\" \"$escaped_pattern\" $context)"
+else
+    # Search all sessions
+    emacsclient --eval "(meta-agent-shell-search-sessions \"$escaped_pattern\" $context)"
+fi

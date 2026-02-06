@@ -712,6 +712,9 @@ List agents in this project:
 emacsclient --eval '(meta-agent-shell-get-project-agents \"%s\")'
 ```
 
+**Buffer names** follow the format `AgentName Agent @ projectname` (e.g., `Worker Agent @ myproject`).
+Always use the list command to get exact buffer names - don't guess the format.
+
 ## Workflow
 
 1. Check which agents exist with the list command

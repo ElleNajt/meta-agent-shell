@@ -34,14 +34,14 @@ Reload the package:
 ```
 
 **Expected:**
-- Returns buffer name like `(test-agent-project)-Dispatcher Agent @ test-agent-project`
+- Returns buffer name like `Dispatcher Agent @ test-agent-project`
 - Dispatcher receives inline instructions about its role
 - Dispatcher's working directory is `/tmp/test-agent-project`
 
 **Verify:** Wait ~10 seconds, then check the dispatcher understood its role:
 
 ```elisp
-(meta-agent-shell-view-session "(test-agent-project)-Dispatcher Agent @ test-agent-project" 30)
+(meta-agent-shell-view-session "Dispatcher Agent @ test-agent-project" 30)
 ```
 
 Should see output indicating it knows it's a dispatcher and checked for existing agents.
@@ -52,13 +52,13 @@ Should see output indicating it knows it's a dispatcher and checked for existing
 
 ```elisp
 (meta-agent-shell-send-to-session 
-  "(test-agent-project)-Dispatcher Agent @ test-agent-project"
+  "Dispatcher Agent @ test-agent-project"
   "Spawn a Worker agent to create hello.py that prints hello world"
   nil nil)
 ```
 
 **Expected:**
-- Dispatcher spawns `(test-agent-project)-Worker Agent @ test-agent-project`
+- Dispatcher spawns `Worker Agent @ test-agent-project`
 - Worker creates `/tmp/test-agent-project/hello.py`
 - File is in the project directory, NOT in `~/.claude-meta/`
 
@@ -82,7 +82,7 @@ Should contain a hello world print statement.
 ```
 
 **Expected:**
-- Returns buffer name like `(test-agent-project)-Calculator Agent @ test-agent-project`
+- Returns buffer name like `Calculator Agent @ test-agent-project`
 - Agent receives the initial task immediately
 - Creates `/tmp/test-agent-project/calculator.py`
 
@@ -107,8 +107,8 @@ Then have AgentA message AgentB:
 
 ```elisp
 (meta-agent-shell-send-to-session
-  "(test-agent-project)-AgentA Agent @ test-agent-project"
-  "Send a message to AgentB asking what 2+2 is. Use: agent-send \"(test-agent-project)-AgentB Agent @ test-agent-project\" \"What is 2+2?\""
+  "AgentA Agent @ test-agent-project"
+  "Send a message to AgentB asking what 2+2 is. Use: agent-send \"AgentB Agent @ test-agent-project\" \"What is 2+2?\""
   nil nil)
 ```
 
@@ -117,12 +117,39 @@ Then have AgentA message AgentB:
 **Verify:**
 
 ```elisp
-(meta-agent-shell-view-session "(test-agent-project)-AgentB Agent @ test-agent-project" 20)
+(meta-agent-shell-view-session "AgentB Agent @ test-agent-project" 20)
 ```
 
 Should show message received from AgentA.
 
-## Test 5: List Project Agents
+## Test 5: Agent Ask (with reply)
+
+**Goal:** Verify `agent-ask` delivers questions and the reply mechanism works.
+
+Using the agents from Test 4, have the dispatcher ask AgentA a question:
+
+```elisp
+(meta-agent-shell-send-to-session
+  "Dispatcher Agent @ test-agent-project"
+  "Use agent-ask to ask AgentA what its name is. The command is: agent-ask \"AgentA Agent @ test-agent-project\" \"What is your name?\""
+  nil nil)
+```
+
+**Expected:** 
+- AgentA receives the question with reply instructions
+- AgentA sends a reply back to the dispatcher
+
+**Verify:** After ~15 seconds, check the dispatcher received a reply:
+
+```elisp
+(meta-agent-shell-view-session "Dispatcher Agent @ test-agent-project" 30)
+```
+
+Should show a message from AgentA with its response.
+
+**Note:** `agent-spawn` returns the buffer name, so dispatchers should capture and use that value rather than guessing buffer names.
+
+## Test 6: List Project Agents
 
 **Goal:** Verify `meta-agent-shell-get-project-agents` returns correct list.
 
@@ -132,17 +159,17 @@ Should show message received from AgentA.
 
 **Expected:** Returns list of all agent buffer names in the project (excluding dispatcher).
 
-## Test 6: Interrupt Agent
+## Test 7: Interrupt Agent
 
 **Goal:** Verify agents can be interrupted.
 
 ```elisp
-(meta-agent-shell-interrupt-session "(test-agent-project)-Worker Agent @ test-agent-project")
+(meta-agent-shell-interrupt-session "Worker Agent @ test-agent-project")
 ```
 
 **Expected:** Returns `t` and the agent stops its current operation.
 
-## Test 7: Dispatcher Interrupts Agent
+## Test 8: Dispatcher Interrupts Agent
 
 **Goal:** Verify dispatcher can interrupt a runaway agent.
 
@@ -159,8 +186,8 @@ Then have the dispatcher interrupt it:
 
 ```elisp
 (meta-agent-shell-send-to-session
-  "(test-agent-project)-Dispatcher Agent @ test-agent-project"
-  "Interrupt the SlowWorker agent - it's taking too long. Use: emacsclient --eval '(meta-agent-shell-interrupt-session \"(test-agent-project)-SlowWorker Agent @ test-agent-project\")'"
+  "Dispatcher Agent @ test-agent-project"
+  "Interrupt the SlowWorker agent - it's taking too long. Use: emacsclient --eval '(meta-agent-shell-interrupt-session \"SlowWorker Agent @ test-agent-project\")'"
   nil nil)
 ```
 
