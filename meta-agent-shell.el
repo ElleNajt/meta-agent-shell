@@ -603,6 +603,21 @@ Returns t on success, nil if no matching session found."
         (agent-shell-interrupt t)  ; force=t to skip y-or-n-p prompt
         t))))
 
+;;;###autoload
+(defun meta-agent-shell-interrupt-all ()
+  "Interrupt ALL agent-shell sessions immediately.
+Panic button - stops all agents including meta-agent and dispatchers.
+Returns the number of sessions interrupted."
+  (interactive)
+  (let ((count 0))
+    (dolist (buf (agent-shell-buffers))
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (agent-shell-interrupt t))
+        (cl-incf count)))
+    (message "Interrupted %d agent sessions" count)
+    count))
+
 ;;; Dispatcher functions - project-level message routing
 
 ;;;###autoload
