@@ -612,11 +612,19 @@ as its second argument for this to work cleanly."
     (if (file-directory-p dir)
         (let* ((default-directory dir)
                (project-name (file-name-nondirectory (directory-file-name dir)))
-               (buffer-name (format "(%s)-%s" project-name name)))
+               (buffer-name name))
           ;; Pass buffer-name as second arg to start function
-          (funcall meta-agent-shell-start-function
-                   (car meta-agent-shell-start-function-args)
-                   buffer-name)
+          ;; Retry once on failure (workaround for race condition after killing buffers)
+          (condition-case err
+              (funcall meta-agent-shell-start-function
+                       (car meta-agent-shell-start-function-args)
+                       buffer-name)
+            (error
+             (message "First agent start attempt failed (%s), retrying..." err)
+             (sleep-for 0.5)
+             (funcall meta-agent-shell-start-function
+                      (car meta-agent-shell-start-function-args)
+                      buffer-name)))
           ;; Auto-register if restrictions are enabled or explicitly requested
           (when (or auto-allow meta-agent-shell-restrict-targets)
             (meta-agent-shell-allow-target buffer-name))
@@ -731,26 +739,37 @@ When called interactively, uses the current buffer's project."
         (setq meta-agent-shell--dispatchers
               (assoc-delete-all project-path meta-agent-shell--dispatchers)))
       ;; Create dispatcher in the project directory itself
-      (let* ((dispatcher-buffer-name (format "(%s)-Dispatcher" project-name))
+      (let* ((dispatcher-buffer-name "Dispatcher")
              (default-directory project-path)
              (instructions (format meta-agent-shell--dispatcher-instructions
-                                   project-path project-path)))
+                                   project-path project-path))
+             (buf nil))
         ;; Pass buffer-name as second arg to start function
-        (funcall meta-agent-shell-start-function
-                 (car meta-agent-shell-start-function-args)
-                 dispatcher-buffer-name)
-        (let ((buf (current-buffer)))
-          ;; Register dispatcher
-          (push (cons project-path buf) meta-agent-shell--dispatchers)
-          ;; Send instructions after a short delay for initialization
-          (run-at-time 0.5 nil
-                       (lambda (buffer msg)
-                         (when (buffer-live-p buffer)
-                           (with-current-buffer buffer
-                             (shell-maker-submit :input msg))))
-                       buf instructions)
-          (message "Dispatcher started for %s" project-name)
-          (buffer-name buf))))))
+        ;; Retry once on failure (workaround for race condition after killing buffers)
+        (condition-case err
+            (funcall meta-agent-shell-start-function
+                     (car meta-agent-shell-start-function-args)
+                     dispatcher-buffer-name)
+          (error
+           (message "First dispatcher start attempt failed (%s), retrying..." err)
+           (sleep-for 0.5)
+           (funcall meta-agent-shell-start-function
+                    (car meta-agent-shell-start-function-args)
+                    dispatcher-buffer-name)))
+        (setq buf (current-buffer))
+        ;; Register dispatcher
+        (push (cons project-path buf) meta-agent-shell--dispatchers)
+        ;; Send instructions after a short delay for initialization
+        (run-at-time 2 nil
+                     (lambda (buffer msg)
+                       (when (buffer-live-p buffer)
+                         (with-current-buffer buffer
+                           (condition-case err
+                               (shell-maker-submit :input msg)
+                             (error (message "Failed to send dispatcher instructions: %s" err))))))
+                     buf instructions)
+        (message "Dispatcher started for %s" project-name)
+        (buffer-name buf)))))
 
 ;;;###autoload
 (defun meta-agent-shell-get-project-agents (project-path)
