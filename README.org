@@ -163,6 +163,34 @@ All inter-agent communication is logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-
 (setq meta-agent-shell-log-directory "~/.meta-agent-shell/logs/")
 #+end_src
 
+* Heartbeat (Optional)
+
+The heartbeat sends periodic status updates to the meta-agent with all active sessions and your standing instructions. Useful if you want the meta-agent to proactively monitor and coordinate.
+
+** Setup
+
+1. Create a heartbeat file with your standing instructions:
+
+#+begin_src bash
+echo "Check on agent progress. Alert me if any agent seems stuck." > ~/heartbeat.org
+#+end_src
+
+2. Configure and start:
+
+#+begin_src elisp
+(setq meta-agent-shell-heartbeat-file "~/heartbeat.org")
+(setq meta-agent-shell-heartbeat-interval 900)  ; seconds (default: 15 min)
+(setq meta-agent-shell-heartbeat-cooldown 300)  ; delay after user interaction
+#+end_src
+
+3. Start the heartbeat timer:
+
+#+begin_example
+M-x meta-agent-shell-heartbeat-start
+#+end_example
+
+The meta-agent receives a formatted status of all sessions plus your instructions at each interval.
+
 * How Auto-Detection Works
 
 When an agent runs =agent-send= or =agent-whoami=, it passes its shell PID (=$$=).
