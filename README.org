@@ -5,7 +5,7 @@ Multi-agent coordination for [[https://github.com/xenodium/agent-shell][agent-sh
 
 [[file:docs/multi-agent-session.png]]
 
-[[file:docs/cli-tools.png]]
+[[file:docs/icc-graph.png]]
 
 * What This Does
 
