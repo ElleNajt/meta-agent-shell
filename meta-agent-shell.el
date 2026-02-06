@@ -692,14 +692,9 @@ Returns the number of sessions interrupted."
 
 ## Your Tools
 
-List agents in this project:
+Spawn a new named agent (preferred):
 ```bash
-emacsclient --eval '(meta-agent-shell-get-project-agents \"%s\")'
-```
-
-Spawn a new named agent:
-```bash
-emacsclient --eval '(meta-agent-shell-start-named-agent \"%s\" \"AgentName\" \"initial task\")'
+agent-spawn \"AgentName\" \"initial task\"
 ```
 
 Send a message to an agent:
@@ -712,9 +707,14 @@ Ask an agent (they'll reply back):
 agent-ask \"BUFFER-NAME\" \"question\"
 ```
 
+List agents in this project:
+```bash
+emacsclient --eval '(meta-agent-shell-get-project-agents \"%s\")'
+```
+
 ## Workflow
 
-1. Check which agents exist with the list command above
+1. Check which agents exist with the list command
 2. Route to existing agent, or spawn a new named agent for the task
 3. For status checks, use `agent-ask` to query agents"
   "Instructions sent to dispatchers at startup.
@@ -742,7 +742,7 @@ When called interactively, uses the current buffer's project."
       (let* ((dispatcher-buffer-name "Dispatcher")
              (default-directory project-path)
              (instructions (format meta-agent-shell--dispatcher-instructions
-                                   project-path project-path))
+                                   project-path))
              (buf nil))
         ;; Pass buffer-name as second arg to start function
         ;; Retry once on failure (workaround for race condition after killing buffers)
@@ -770,6 +770,20 @@ When called interactively, uses the current buffer's project."
                      buf instructions)
         (message "Dispatcher started for %s" project-name)
         (buffer-name buf)))))
+
+;;;###autoload
+(defun meta-agent-shell-jump-to-dispatcher ()
+  "Jump to the dispatcher for the current buffer's project.
+If no dispatcher exists, offer to create one."
+  (interactive)
+  (let* ((project-path (expand-file-name (meta-agent-shell--get-project-path)))
+         (entry (assoc project-path meta-agent-shell--dispatchers)))
+    (if (and entry (buffer-live-p (cdr entry)))
+        (pop-to-buffer (cdr entry))
+      (if (y-or-n-p (format "No dispatcher for %s. Create one? "
+                            (file-name-nondirectory (directory-file-name project-path))))
+          (meta-agent-shell-start-dispatcher project-path)
+        (message "No dispatcher for this project")))))
 
 ;;;###autoload
 (defun meta-agent-shell-get-project-agents (project-path)

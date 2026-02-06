@@ -12,17 +12,17 @@ A dispatcher coordinates agents within a single project:
 ## Key Tools
 
 ```bash
-# List agents in project
-emacsclient --eval '(meta-agent-shell-get-project-agents "/path/to/project")'
-
-# Spawn agent with initial task (preferred - single tool call)
-emacsclient --eval '(meta-agent-shell-start-named-agent "/path/to/project" "AgentName" "initial task")'
+# Spawn agent with initial task (preferred)
+agent-spawn "AgentName" "initial task"
 
 # Send message to agent
 agent-send "BUFFER-NAME" "message"
 
 # Ask agent (they reply back)
 agent-ask "BUFFER-NAME" "question"
+
+# List agents in project
+emacsclient --eval '(meta-agent-shell-get-project-agents "/path/to/project")'
 ```
 
 ## Principles
