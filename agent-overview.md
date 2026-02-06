@@ -8,64 +8,73 @@ You are one of potentially many Claude agents. This doc explains how the system 
 User (human)
     ↓
 Meta-Agent (~/.claude-meta/)
-    ↓ heartbeat + coordination
+    ↓ coordination
 Project Dispatchers (one per multi-agent project)
     ↓ routes work, manages agent lifecycle
 Individual Agents (you might be one of these)
 ```
 
-**Meta-agent**: Supervisory Claude that monitors all sessions, receives periodic heartbeats with status of all agents.
+## Communicating with Other Agents
 
-**Dispatcher**: Per-project coordinator that routes work to agents. Can spawn agents for specific tasks (with descriptive names) and close them when work is complete.
-
-**Agent**: You. May work on a single task or have an ongoing conversation spanning multiple tasks. Your lifecycle is managed by the dispatcher or user.
-
-## Task Management
-
-Tasks live in `.tasks/` folders as org files:
-
-```
-project/.tasks/current.org
-```
-
-```org
-** TODO Implement feature X :@claude:
-   :PROPERTIES:
-   :ASSIGNED: Claude Code Agent @ myproject
-   :END:
-   
-   Details here.
-```
-
-**When you start a task**: Mark `TODO` → `DOING`
-**When you finish**: Mark `DOING` → `DONE`, add `CLOSED: [timestamp]`
-
-These show up in the user's Emacs agenda.
-
-## Inter-Agent Communication
-
-Agents can message each other via elisp:
+Use these shell commands:
 
 ```bash
-# Send message (fire and forget)
-emacsclient --eval '(meta-agent-shell-send-to-session "buffer-name" "message")'
+# Send a message to another agent
+agent-send "target-buffer" "message"
 
-# Ask and expect reply
-emacsclient --eval '(meta-agent-shell-ask-session "buffer-name" "question")'
+# Ask another agent a question (they'll reply back to you)
+agent-ask "target-buffer" "question"
+
+# Find out your own buffer name
+agent-whoami
 ```
 
-When asked a question, you'll be told how to reply.
+Examples:
+
+```bash
+agent-send "(myproject)-Tests" "Feature is ready for testing"
+agent-ask "(myproject)-Dispatcher" "What should I work on next?"
+```
+
+Your identity is auto-detected - you don't need to know your own buffer name.
+
+## Buffer Naming
+
+Named agents use the format `(ProjectName)-AgentName`:
+- `(myproject)-Refactor`
+- `(myproject)-Tests`
+- `(myproject)-Bugfix`
+
+Dispatchers use `(ProjectName)-Dispatcher`.
+
+## When You Receive a Question
+
+If another agent asks you a question, you'll see instructions like:
+
+```
+Question from (myproject)-Main:
+
+What's the status of the tests?
+
+Reply using (replace YOUR_ANSWER with your response):
+emacsclient --eval '(meta-agent-shell-send-to-session "(myproject)-Main" "YOUR_ANSWER" nil '$$')'
+```
+
+Just replace `YOUR_ANSWER` with your response - the sender identity is auto-detected from `$$`.
+
+Or use the simpler shell command:
+
+```bash
+agent-send "(myproject)-Main" "All tests passing"
+```
+
+## Task Management (Optional)
+
+If a project uses task tracking, tasks live in `.tasks/current.org`. If the file doesn't exist and you want to track tasks, create it.
 
 ## Key Points
 
 1. **You're not alone** - Other agents may be working on the same project
-2. **Check .tasks/** - Your assigned work is there
-3. **Update task status** - So the user and dispatchers know what's happening
-4. **Dispatcher routes work** - If you get a message from dispatcher, it's coordination
-5. **Meta-agent observes** - Periodic heartbeats monitor all sessions
-
-## If You're Confused
-
-- Check `.tasks/current.org` for your assignments
-- Ask the dispatcher: "What should I be working on?"
-- Look at your `:ASSIGNED:` property in tasks
+2. **Dispatcher routes work** - If you get a message from a dispatcher, it's coordination
+3. **Use descriptive names** - When spawning agents, name them by their task
+4. **Auto-detection works** - You don't need to know your own buffer name for sending messages
