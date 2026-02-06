@@ -88,6 +88,12 @@ If you've messaged the meta session within this time, heartbeat is delayed."
   :type 'string
   :group 'meta-agent-shell)
 
+(defcustom meta-agent-shell-restrict-targets nil
+  "When non-nil, only allow messaging buffers in `meta-agent-shell-allowed-targets'.
+Set to t for sandboxed workflows where dispatcher has limited permissions."
+  :type 'boolean
+  :group 'meta-agent-shell)
+
 ;;; State
 
 (defvar meta-agent-shell--heartbeat-timer nil
@@ -103,6 +109,36 @@ Used to implement cooldown before sending heartbeat.")
 (defvar meta-agent-shell--dispatchers nil
   "Alist of (project-path . dispatcher-buffer) for active project dispatchers.
 Dispatchers route messages to the appropriate agent within a project.")
+
+(defvar meta-agent-shell--allowed-targets nil
+  "List of buffer names that agents are allowed to message.
+Only checked when `meta-agent-shell-restrict-targets' is non-nil.
+Use `meta-agent-shell-allow-target' to add buffers.")
+
+;;; Target Restrictions
+
+(defun meta-agent-shell-allow-target (buffer-name)
+  "Add BUFFER-NAME to the list of allowed messaging targets.
+Returns t if added, nil if already present."
+  (if (member buffer-name meta-agent-shell--allowed-targets)
+      nil
+    (push buffer-name meta-agent-shell--allowed-targets)
+    t))
+
+(defun meta-agent-shell-disallow-target (buffer-name)
+  "Remove BUFFER-NAME from the list of allowed messaging targets."
+  (setq meta-agent-shell--allowed-targets
+        (delete buffer-name meta-agent-shell--allowed-targets)))
+
+(defun meta-agent-shell-list-allowed-targets ()
+  "Return list of allowed messaging targets."
+  meta-agent-shell--allowed-targets)
+
+(defun meta-agent-shell--target-allowed-p (buffer-name)
+  "Return non-nil if BUFFER-NAME is allowed as a messaging target.
+Always returns t if `meta-agent-shell-restrict-targets' is nil."
+  (or (not meta-agent-shell-restrict-targets)
+      (member buffer-name meta-agent-shell--allowed-targets)))
 
 ;;; ICC Logging
 
@@ -460,7 +496,9 @@ Returns list of matches with :line and :context."
 Prepends the message with sender info. FROM specifies the sender name.
 If FROM is nil and CALLING-PID is provided, auto-detects sender from PID.
 If both are nil, defaults to \"an agent\".
-Returns t on success, nil if buffer not found or not an active session."
+Returns t on success, nil if buffer not found, not allowed, or not an active session."
+  (unless (meta-agent-shell--target-allowed-p buffer-name)
+    (error "Target %s not in allowed list (meta-agent-shell-restrict-targets is enabled)" buffer-name))
   (let* ((from-name (or from
                         (when calling-pid
                           (meta-agent-shell-whoami calling-pid))
@@ -517,6 +555,8 @@ Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
 The question is wrapped with instructions to send the reply back.
 FROM specifies who is asking (buffer name for reply); required.
 Returns t on success, nil if not found."
+  (unless (meta-agent-shell--target-allowed-p buffer-name)
+    (error "Target %s not in allowed list (meta-agent-shell-restrict-targets is enabled)" buffer-name))
   (let ((buffer (get-buffer buffer-name)))
     (if (and buffer
              (buffer-live-p buffer)
@@ -556,10 +596,12 @@ Returns the buffer name of the new session, or nil if folder doesn't exist."
       nil)))
 
 ;;;###autoload
-(defun meta-agent-shell-start-named-agent (folder name &optional initial-message)
+(defun meta-agent-shell-start-named-agent (folder name &optional initial-message auto-allow)
   "Start a new named agent-shell session in FOLDER with NAME.
 The buffer will be named \"(ProjectName)-NAME\".
 If INITIAL-MESSAGE is provided, send it to the agent after starting.
+If AUTO-ALLOW is non-nil (or `meta-agent-shell-restrict-targets' is t),
+automatically add the new buffer to the allowed targets list.
 Returns the buffer name of the new session, or nil if folder doesn't exist."
   (let ((dir (expand-file-name folder)))
     (if (file-directory-p dir)
@@ -568,6 +610,9 @@ Returns the buffer name of the new session, or nil if folder doesn't exist."
                (buffer-name (format "(%s)-%s" project-name name)))
           (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
           (shell-maker-set-buffer-name (current-buffer) buffer-name)
+          ;; Auto-register if restrictions are enabled or explicitly requested
+          (when (or auto-allow meta-agent-shell-restrict-targets)
+            (meta-agent-shell-allow-target buffer-name))
           (when initial-message
             (run-at-time 0.5 nil
                          (lambda (buf msg)
