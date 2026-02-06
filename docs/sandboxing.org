@@ -1,0 +1,48 @@
+#+TITLE: Sandboxed Workflow
+#+AUTHOR: Elle Najt
+
+*Status: Work in Progress*
+
+For safer multi-agent setups, you can restrict which buffers agents can message and run workers in containers.
+
+* The Idea
+
+1. *Dispatcher* runs with limited permissions - only allowed to call safe tools
+2. *Worker agents* run in containers with dangerous mode (can do real work)
+3. *Target whitelist* - dispatcher can only message buffers on an approved list
+
+* Known Limitations
+
+** Tunnel from sandbox to dispatcher
+
+Currently there's no tunnel for containerized agents to communicate back to the dispatcher. Workers in containers can't use ~agent-send~ or ~agent-ask~ to reach the host Emacs.
+
+This needs to be solved before sandboxed workflows are fully functional.
+
+* Setup
+
+#+begin_src elisp
+;; Enable target restrictions
+(setq meta-agent-shell-restrict-targets t)
+#+end_src
+
+Now ~agent-send~ and ~agent-ask~ will error if the target isn't in the allowed list.
+
+* Managing the Whitelist
+
+#+begin_src elisp
+;; Add a buffer to allowed targets
+(meta-agent-shell-allow-target "buffer-name")
+
+;; Remove from list
+(meta-agent-shell-disallow-target "buffer-name")
+
+;; See current list
+(meta-agent-shell-list-allowed-targets)
+#+end_src
+
+When you start agents with ~meta-agent-shell-start-named-agent~, they're automatically added to the allowed list.
+
+* End Goal
+
+The dispatcher can spawn containerized workers and coordinate between them, but can't message arbitrary buffers. Workers do the dangerous stuff inside containers. You get multi-agent coordination without giving the orchestrator full system access.

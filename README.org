@@ -1,17 +1,22 @@
 #+TITLE: meta-agent-shell
 #+AUTHOR: Elle Najt
 
-Multi-agent coordination for [[https://github.com/xenodium/agent-shell][agent-shell]]. Dispatchers route work to agents, agents communicate with each other, tasks live in org files that show up in your agenda.
+Multi-agent coordination for [[https://github.com/xenodium/agent-shell][agent-shell]].
 
 [[file:docs/cli-tools.png]]
 
 * What This Does
 
-- *Dispatchers* coordinate multiple agents on a project - spawn agents, route messages, manage lifecycle
-- *Inter-agent communication* via simple CLI tools (~agent-send~, ~agent-ask~)
-- *Task tracking* in org files (~.tasks/current.org~) - tasks show up in Emacs agenda
-- *ICC logging* - all agent-to-agent messages logged as JSONL for debugging/analysis
-- *Panic button* - ~M-x meta-agent-shell-interrupt-all~ stops everything
+Two levels of coordination:
+
+1. *Project Dispatchers* - coordinate multiple agents within a single project
+2. *Meta-Agent* - oversees all your projects, receives status heartbeats, monitors everything
+
+Plus:
+- *Inter-agent communication* via CLI tools (~agent-send~, ~agent-ask~, ~agent-search~)
+- *Task tracking* in org files that show up in your Emacs agenda
+- *ICC logging* - all agent-to-agent messages logged as JSONL
+- *Big red button* - ~M-x meta-agent-shell-big-red-button~ stops everything
 
 * Setup
 
@@ -31,15 +36,17 @@ Then add to your Emacs config:
   :after agent-shell)
 #+end_src
 
-* Usage
+* Workflow 1: Project Dispatchers
 
-** Start a dispatcher for a project
+Use dispatchers when you want multiple agents working on a single project.
+
+** Start a dispatcher
 
 #+begin_example
 M-x meta-agent-shell-start-dispatcher
 #+end_example
 
-The dispatcher can spawn agents, assign tasks, and coordinate work.
+The dispatcher runs in your project directory and can spawn agents, assign tasks, and coordinate work.
 
 ** Jump to dispatcher
 
@@ -49,7 +56,9 @@ M-x meta-agent-shell-jump-to-dispatcher
 
 Jumps to the dispatcher for the current buffer's project. If none exists, offers to create one.
 
-** Agents communicate via CLI
+** CLI tools for agents
+
+Agents communicate with each other using these shell commands:
 
 #+begin_src bash
 agent-spawn "AgentName" "initial task"  # spawn a new named agent
@@ -58,12 +67,13 @@ agent-ask "buffer-name" "question"      # reply routed back automatically
 agent-whoami                            # print own buffer name
 agent-search "pattern"                  # search all sessions for regexp
 agent-search "pattern" projectname      # search specific project
-agent-search "pattern" --context 5      # show 5 lines of context
 #+end_src
 
 Agents are taught these tools via =agent-overview.md= (included in setup).
 
-These work because the scripts pass the shell's PID (~$$~), and the system walks up the process tree to find the ACP client:
+** How agent identity works
+
+The CLI tools pass the shell's PID (~$$~), and the system walks up the process tree to find the ACP client:
 
 #+begin_example
 $$ (shell) → zsh → claude → node (ACP client)
@@ -73,68 +83,34 @@ Each agent-shell buffer owns an ACP client process. Match the PID, find the buff
 
 ** Task tracking
 
-Dispatchers write tasks to =.tasks/current.org= in the project:
+Dispatchers can write tasks to =.tasks/current.org= in the project:
 
 #+begin_src org
 ** TODO Refactor auth middleware :@claude:
    :PROPERTIES:
-   :ASSIGNED: (myproject)-Refactor
+   :ASSIGNED: Refactor
    :END:
 #+end_src
 
 Add =.tasks/= to your =org-agenda-files= and tasks show up in your agenda.
 
-* Logging
+* Workflow 2: Meta-Agent
 
-All inter-agent messages logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.jsonl=:
+Use the meta-agent when you want oversight across multiple projects.
 
-#+begin_src json
-{"timestamp":"2026-02-05T14:32:01","type":"ask","from":"(proj)-A","to":"(proj)-B","message":"..."}
-#+end_src
+** Start the meta-agent
 
-* Sandboxed Workflow
+#+begin_example
+M-x meta-agent-shell-start
+#+end_example
 
-For safer multi-agent setups, you can restrict which buffers agents can message.
+This starts a dedicated agent in =~/.claude-meta/= that can see all your active sessions.
 
-** The idea
+** Heartbeat
 
-1. *Dispatcher* runs with limited permissions - only allowed to call our safe tools (~agent-send~, ~list-sessions~, etc.)
-2. *Worker agents* run in containers with dangerous mode (can do real work)
-3. *Target whitelist* - dispatcher can only message buffers on an approved list
+The meta-agent receives periodic heartbeats with status updates from all your projects.
 
-** Setup
-
-#+begin_src elisp
-;; Enable target restrictions
-(setq meta-agent-shell-restrict-targets t)
-#+end_src
-
-Now ~agent-send~ and ~agent-ask~ will error if the target isn't in the allowed list.
-
-** Managing the whitelist
-
-#+begin_src elisp
-;; Add a buffer to allowed targets
-(meta-agent-shell-allow-target "buffer-name")
-
-;; Remove from list
-(meta-agent-shell-disallow-target "buffer-name")
-
-;; See current list
-(meta-agent-shell-list-allowed-targets)
-#+end_src
-
-When you start agents with ~meta-agent-shell-start-named-agent~, they're automatically added to the allowed list if ~meta-agent-shell-restrict-targets~ is enabled.
-
-** Result
-
-The dispatcher can spawn containerized workers and coordinate between them, but can't message arbitrary buffers. Workers do the dangerous stuff inside containers. You get multi-agent coordination without giving the orchestrator full system access.
-
-* Heartbeat (Optional)
-
-Sends periodic status updates to the meta-agent with all active sessions and your standing instructions.
-
-** Setup
+*** Setup
 
 1. Create a file with standing instructions:
 
@@ -156,17 +132,31 @@ echo "Check on agent progress. Alert me if any seem stuck." > ~/heartbeat.org
 M-x meta-agent-shell-heartbeat-start
 #+end_example
 
-** What it sends
+*** What it sends
 
 Each heartbeat includes:
 - List of all active sessions with status (working/idle)
 - Recent output from watched projects (if configured)
 - Your standing instructions from the heartbeat file
 
-** Other commands
+*** Other commands
 
 - ~M-x meta-agent-shell-heartbeat-stop~ - stop the timer
 - ~M-x meta-agent-shell-heartbeat-send-now~ - send one immediately
+
+* Logging
+
+All inter-agent messages logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.jsonl=:
+
+#+begin_src json
+{"timestamp":"2026-02-05T14:32:01","type":"ask","from":"(proj)-A","to":"(proj)-B","message":"..."}
+#+end_src
+
+* Sandboxed Workflow (WIP)
+
+See [[file:docs/sandboxing.org][docs/sandboxing.org]] for running workers in containers with restricted dispatcher permissions.
+
+Note: Still needs a tunnel from containerized agents back to the host dispatcher.
 
 * License
 
