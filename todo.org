@@ -5,3 +5,19 @@ When spawning an agent with a name that was recently killed, agent-shell sometim
 Current workaround: retry after 0.5s delay with ~sit-for~ (see ~meta-agent-shell-start-named-agent~).
 
 Root cause likely in agent-shell async cleanup. May need to file upstream issue or find proper fix.
+
+* TODO Buffer name to transcript index
+Maintain an index file mapping buffer names to transcript paths in ~/.agent-shell/.
+When a session starts, write {buffer-name -> session-id/path} to ~/.agent-shell/index.json.
+This would let agent-search and other tools show which buffer each result came from.
+
+Hook into agent-shell session creation, write mappings, add lookup function.
+
+* TODO Add note-for-later CLI tool
+Simple CLI that creates/appends to an agent's personal notes file.
+Each agent gets their own file to avoid conflicts: .tasks/agent_<description>.org
+
+Usage: note-for-later "refactor auth" "Found a bug in X, should investigate Y"
+Creates/appends to .tasks/agent_refactor_auth.org with timestamped entry.
+
+Separate files per agent = no coordination needed, no merge conflicts.

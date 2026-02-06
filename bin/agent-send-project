@@ -1,0 +1,18 @@
+#!/bin/bash
+# agent-send-project - Send a message to an agent by project name
+# Usage: agent-send-project "project-name" "message"
+
+if [ $# -lt 2 ]; then
+    echo "Usage: agent-send-project \"project-name\" \"message\"" >&2
+    exit 1
+fi
+
+project="$1"
+message="$2"
+
+me=$(emacsclient --eval "(meta-agent-shell-whoami $$)" | tr -d '"')
+if [ "$me" = "nil" ]; then
+    me="an agent"
+fi
+
+emacsclient --eval "(meta-agent-shell-send-to-project \"$project\" \"$message\" \"$me\")"

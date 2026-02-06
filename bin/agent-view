@@ -1,0 +1,13 @@
+#!/bin/bash
+# agent-view - View recent output from an agent session
+# Usage: agent-view "buffer-name" [lines]
+
+if [ $# -lt 1 ]; then
+    echo "Usage: agent-view \"buffer-name\" [lines]" >&2
+    exit 1
+fi
+
+target="$1"
+lines="${2:-50}"
+
+emacsclient --eval "(meta-agent-shell-view-session \"$target\" $lines nil $$)"

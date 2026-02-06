@@ -3,6 +3,8 @@
 
 Multi-agent coordination for [[https://github.com/xenodium/agent-shell][agent-shell]].
 
+[[file:docs/multi-agent-session.png]]
+
 [[file:docs/cli-tools.png]]
 
 * What This Does
@@ -91,6 +93,7 @@ agent-ask "buffer-name" "question"      # reply routed back automatically
 agent-whoami                            # print own buffer name
 agent-search "pattern"                  # search all sessions for regexp
 agent-search "pattern" projectname      # search specific project
+note-for-later desc "note text"         # leave timestamped note in .tasks/
 #+end_src
 
 Agents are taught these tools via =agent-overview.md= (included in setup).
@@ -170,11 +173,23 @@ Each heartbeat includes:
 
 * Logging
 
-All inter-agent messages logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.jsonl=:
+All inter-agent communication logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.jsonl=:
 
 #+begin_src json
-{"timestamp":"2026-02-05T14:32:01","type":"ask","from":"(proj)-A","to":"(proj)-B","message":"..."}
+{"timestamp":"2026-02-06T10:00:15","type":"ask","from":"Dispatcher Agent @ myproject","to":"Refactor Agent @ myproject","message":"..."}
 #+end_src
+
+Event types: =send=, =ask=, =view=, =close=, =interrupt=
+
+** Visualization
+
+#+begin_example
+./tools/icc-viz.py -o graph.png     # communication graph
+./tools/icc-viz.py --timeline       # activity over time
+./tools/icc-viz.py --stats          # summary statistics
+#+end_example
+
+[[file:docs/icc-graph.png]]
 
 * Sandboxed Workflow (WIP)
 

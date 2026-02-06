@@ -16,7 +16,7 @@ Individual Agents (you might be one of these)
 
 ## Communicating with Other Agents
 
-Use these shell commands:
+**Always use these CLI tools** (never raw `emacsclient --eval`):
 
 ```bash
 # Send a message to another agent
@@ -33,6 +33,18 @@ agent-search "pattern"
 
 # Search a specific project's sessions
 agent-search "pattern" projectname
+
+# List active sessions
+agent-list
+
+# View recent output from a session
+agent-view "target-buffer" 50
+
+# Close a session
+agent-close "target-buffer"
+
+# Interrupt a runaway agent
+agent-interrupt "target-buffer"
 ```
 
 Examples:
@@ -42,7 +54,7 @@ agent-send "(myproject)-Tests" "Feature is ready for testing"
 agent-ask "(myproject)-Dispatcher" "What should I work on next?"
 ```
 
-Your identity is auto-detected - you don't need to know your own buffer name.
+The CLI tools auto-detect your identity and log communications properly. Using `emacsclient --eval` directly bypasses this and your messages will show up as "an agent" in logs.
 
 ## Buffer Naming
 
@@ -61,13 +73,10 @@ Question from (myproject)-Main:
 
 What's the status of the tests?
 
-Reply using (replace YOUR_ANSWER with your response):
-emacsclient --eval '(meta-agent-shell-send-to-session "(myproject)-Main" "YOUR_ANSWER" nil '$$')'
+Reply using: agent-send "(myproject)-Main" "YOUR_ANSWER"
 ```
 
-Just replace `YOUR_ANSWER` with your response - the sender identity is auto-detected from `$$`.
-
-Or use the simpler shell command:
+Reply with `agent-send`:
 
 ```bash
 agent-send "(myproject)-Main" "All tests passing"
@@ -76,6 +85,23 @@ agent-send "(myproject)-Main" "All tests passing"
 ## Task Management (Optional)
 
 If a project uses task tracking, tasks live in `.tasks/current.org`. If the file doesn't exist and you want to track tasks, create it.
+
+## Notes for Later
+
+Use `note-for-later` to leave timestamped notes for yourself or other agents:
+
+```bash
+note-for-later <desc> "note text"
+```
+
+This appends to `.tasks/agent_<desc>.org`. Use your agent name or role as the desc:
+
+```bash
+note-for-later refactor "Edge case in parse_args needs handling"
+note-for-later tests "Integration tests flaky on CI - investigate timeout"
+```
+
+Notes persist across sessions and can be read by any agent working on the project.
 
 ## When to Use a Worktree
 

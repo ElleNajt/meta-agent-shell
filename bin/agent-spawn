@@ -1,8 +1,9 @@
 #!/bin/bash
 # agent-spawn - Spawn a new named agent
-# Usage: agent-spawn "AgentName" "initial task"
+# Usage: agent-spawn "AgentName" ["initial task"]
 #
-# Spawns agent in the current directory's project.
+# Spawns agent in the calling agent's project (via PID lookup).
+# Falls back to current directory if not called from an agent.
 
 if [ $# -lt 1 ]; then
     echo "Usage: agent-spawn \"AgentName\" [\"initial task\"]" >&2
@@ -12,8 +13,11 @@ fi
 name="$1"
 task="${2:-}"
 
-# Get current directory for project path
-project_path="$(pwd)"
+# Get project path from calling agent's buffer, fall back to pwd
+project_path=$(emacsclient --eval "(meta-agent-shell-project-path $$)" 2>/dev/null | tr -d '"')
+if [ "$project_path" = "nil" ] || [ -z "$project_path" ]; then
+    project_path="$(pwd)"
+fi
 
 if [ -n "$task" ]; then
     emacsclient --eval "(meta-agent-shell-start-named-agent \"$project_path\" \"$name\" \"$task\")"

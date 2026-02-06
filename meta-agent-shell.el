@@ -212,6 +212,14 @@ PID should be the shell's $$ or a descendant process.
 Returns buffer name or nil if not found."
   (meta-agent-shell--find-buffer-by-client-pid pid))
 
+;;;###autoload
+(defun meta-agent-shell-project-path (pid)
+  "Return the default-directory of the agent-shell session that owns process PID.
+PID should be the shell's $$ or a descendant process.
+Returns directory path or nil if not found."
+  (when-let ((buf-name (meta-agent-shell--find-buffer-by-client-pid pid)))
+    (buffer-local-value 'default-directory (get-buffer buf-name))))
+
 (defun meta-agent-shell--get-project-path ()
   "Get project path for current buffer.
 Uses projectile if available, otherwise `default-directory'."
@@ -404,14 +412,20 @@ Returns list of plists with :project, :buffer, :status."
     (nreverse sessions)))
 
 ;;;###autoload
-(defun meta-agent-shell-view-session (buffer-name &optional num-lines)
+(defun meta-agent-shell-view-session (buffer-name &optional num-lines from calling-pid)
   "View recent output from session BUFFER-NAME.
-Returns last NUM-LINES (default 100) of the buffer content."
-  (let ((buffer (get-buffer buffer-name))
-        (n (or num-lines 100)))
-    (if (and buffer (buffer-live-p buffer))
-        (meta-agent-shell--get-buffer-recent-output buffer n)
-      nil)))
+Returns last NUM-LINES (default 100) of the buffer content.
+FROM or CALLING-PID identify the requester for logging."
+  (let* ((buffer (get-buffer buffer-name))
+         (n (or num-lines 100))
+         (from-name (or from
+                        (when calling-pid
+                          (meta-agent-shell-whoami calling-pid))
+                        "an agent")))
+    (when (and buffer (buffer-live-p buffer))
+      (meta-agent-shell--log-icc from-name buffer-name
+                                 (format "viewed last %d lines" n) "view")
+      (meta-agent-shell--get-buffer-recent-output buffer n))))
 
 ;;;###autoload
 (defun meta-agent-shell-view-project (project-name &optional num-lines)
@@ -423,14 +437,19 @@ Returns last NUM-LINES (default 100) of the buffer content."
       (meta-agent-shell--get-buffer-recent-output target-buffer n))))
 
 ;;;###autoload
-(defun meta-agent-shell-close-session (buffer-name)
+(defun meta-agent-shell-close-session (buffer-name &optional calling-pid)
   "Close/kill the agent-shell session BUFFER-NAME.
+CALLING-PID identifies the requester for logging.
 Returns t on success, nil if buffer not found."
-  (let ((buffer (get-buffer buffer-name)))
+  (let* ((buffer (get-buffer buffer-name))
+         (from-name (if calling-pid
+                        (or (meta-agent-shell-whoami calling-pid) "an agent")
+                      "an agent")))
     (if (and buffer
              (buffer-live-p buffer)
              (memq buffer (agent-shell-buffers)))
         (progn
+          (meta-agent-shell--log-icc from-name buffer-name "closed session" "close")
           (kill-buffer buffer)
           t)
       nil)))
@@ -502,6 +521,7 @@ Returns list of matches with :line and :context."
 Prepends the message with sender info. FROM specifies the sender name.
 If FROM is nil and CALLING-PID is provided, auto-detects sender from PID.
 If both are nil, defaults to \"an agent\".
+If the target agent is busy, the message is queued for delivery when ready.
 Returns t on success, nil if buffer not found, not allowed, or not an active session."
   (unless (meta-agent-shell--target-allowed-p buffer-name)
     (error "Target %s not in allowed list (meta-agent-shell-restrict-targets is enabled)" buffer-name))
@@ -517,7 +537,11 @@ Returns t on success, nil if buffer not found, not allowed, or not an active ses
         (progn
           (meta-agent-shell--log-icc from-name buffer-name message "send")
           (with-current-buffer buffer
-            (shell-maker-submit :input formatted-message))
+            (if (shell-maker-busy)
+                ;; Agent is busy - queue the message for later delivery
+                (agent-shell--enqueue-request :prompt formatted-message)
+              ;; Agent is ready - send immediately
+              (shell-maker-submit :input formatted-message)))
           t)
       nil)))
 
@@ -526,13 +550,16 @@ Returns t on success, nil if buffer not found, not allowed, or not an active ses
   "Send MESSAGE to the agent-shell session for PROJECT-NAME.
 PROJECT-NAME is matched against the project directory name.
 FROM specifies the sender name (required).
+If the target agent is busy, the message is queued for delivery when ready.
 Returns t on success, nil if no matching session found."
   (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name)))
     (when target-buffer
       (let ((formatted-message (format "Message from %s:\n\n%s" from message)))
         (meta-agent-shell--log-icc from (buffer-name target-buffer) message "send")
         (with-current-buffer target-buffer
-          (shell-maker-submit :input formatted-message)
+          (if (shell-maker-busy)
+              (agent-shell--enqueue-request :prompt formatted-message)
+            (shell-maker-submit :input formatted-message))
           t)))))
 
 ;;;###autoload
@@ -540,26 +567,30 @@ Returns t on success, nil if no matching session found."
   "Ask QUESTION to the agent-shell session for PROJECT-NAME.
 The question is wrapped with instructions to send the reply back.
 FROM specifies who is asking (buffer name for reply); required.
+If the target agent is busy, the question is queued for delivery when ready.
 Returns t on success, nil if not found."
   (let ((target-buffer (meta-agent-shell--find-buffer-by-project project-name)))
     (when (and target-buffer from)
-      (let ((target-name (buffer-name target-buffer)))
-        (meta-agent-shell--log-icc from target-name question)
-        (with-current-buffer target-buffer
-          (shell-maker-submit
-           :input (format "Question from %s:
+      (let* ((target-name (buffer-name target-buffer))
+             (formatted-question (format "Question from %s:
 
 %s
 
 Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
-                          from question from))
-          t)))))
+                                         from question from)))
+        (meta-agent-shell--log-icc from target-name question)
+        (with-current-buffer target-buffer
+          (if (shell-maker-busy)
+              (agent-shell--enqueue-request :prompt formatted-question)
+            (shell-maker-submit :input formatted-question)))
+        t))))
 
 ;;;###autoload
 (defun meta-agent-shell-ask-session (buffer-name question &optional from)
   "Ask QUESTION to the agent-shell session in BUFFER-NAME.
 The question is wrapped with instructions to send the reply back.
 FROM specifies who is asking (buffer name for reply); required.
+If the target agent is busy, the question is queued for delivery when ready.
 Returns t on success, nil if not found."
   (unless (meta-agent-shell--target-allowed-p buffer-name)
     (error "Target %s not in allowed list (meta-agent-shell-restrict-targets is enabled)" buffer-name))
@@ -568,16 +599,17 @@ Returns t on success, nil if not found."
              (buffer-live-p buffer)
              (memq buffer (agent-shell-buffers))
              from)
-        (progn
-          (meta-agent-shell--log-icc from buffer-name question)
-          (with-current-buffer buffer
-            (shell-maker-submit
-             :input (format "Question from %s:
+        (let ((formatted-question (format "Question from %s:
 
 %s
 
 Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
-                            from question from)))
+                                          from question from)))
+          (meta-agent-shell--log-icc from buffer-name question)
+          (with-current-buffer buffer
+            (if (shell-maker-busy)
+                (agent-shell--enqueue-request :prompt formatted-question)
+              (shell-maker-submit :input formatted-question)))
           t)
       nil)))
 
@@ -649,15 +681,21 @@ as its second argument for this to work cleanly."
       nil)))
 
 ;;;###autoload
-(defun meta-agent-shell-interrupt-session (buffer-name)
+(defun meta-agent-shell-interrupt-session (buffer-name &optional calling-pid)
   "Interrupt the agent-shell session in BUFFER-NAME.
+CALLING-PID identifies the requester for logging.
 Returns t on success, nil if buffer not found or not an active session."
-  (let ((buffer (get-buffer buffer-name)))
+  (let* ((buffer (get-buffer buffer-name))
+         (from-name (if calling-pid
+                        (or (meta-agent-shell-whoami calling-pid) "an agent")
+                      "an agent")))
     (if (and buffer
              (buffer-live-p buffer)
              (memq buffer (agent-shell-buffers)))
-        (with-current-buffer buffer
-          (agent-shell-interrupt t)  ; force=t to skip y-or-n-p prompt
+        (progn
+          (meta-agent-shell--log-icc from-name buffer-name "interrupted" "interrupt")
+          (with-current-buffer buffer
+            (agent-shell-interrupt t))  ; force=t to skip y-or-n-p prompt
           t)
       nil)))
 
@@ -799,6 +837,21 @@ If no dispatcher exists, offer to create one."
         (message "No dispatcher for this project")))))
 
 ;;;###autoload
+(defun meta-agent-shell-start-or-dispatcher ()
+  "Start a dispatcher or normal agent shell for the current project.
+If no dispatcher exists for the project, start one.
+If a dispatcher already exists, start a normal agent shell."
+  (interactive)
+  (let* ((project-path (expand-file-name (meta-agent-shell--get-project-path)))
+         (entry (assoc project-path meta-agent-shell--dispatchers)))
+    (if (and entry (buffer-live-p (cdr entry)))
+        ;; Dispatcher exists, start normal agent shell
+        (let ((default-directory project-path))
+          (apply meta-agent-shell-start-function meta-agent-shell-start-function-args))
+      ;; No dispatcher, start one
+      (meta-agent-shell-start-dispatcher project-path))))
+
+;;;###autoload
 (defun meta-agent-shell-get-project-agents (project-path)
   "Get all agent sessions working in PROJECT-PATH.
 Returns list of buffer names for agents in that project."
@@ -810,6 +863,42 @@ Returns list of buffer names for agents in that project."
           (when (string-prefix-p project-path buf-project)
             (push (buffer-name buf) results)))))
     (nreverse results)))
+
+;;;###autoload
+(defun meta-agent-shell-view-project-agents (project-path &optional num-chars)
+  "View recent output from all agents in PROJECT-PATH.
+Returns formatted summary with buffer name and last NUM-CHARS (default 500)
+of output for each agent. Useful for dispatchers to get quick status."
+  (let* ((project-path (expand-file-name project-path))
+         (agents (meta-agent-shell-get-project-agents project-path))
+         (n (or num-chars 500))
+         (results nil))
+    (dolist (buf-name agents)
+      (let* ((buf (get-buffer buf-name))
+             (status (when buf (meta-agent-shell--get-buffer-status buf)))
+             (content (when buf
+                        (with-current-buffer buf
+                          (let ((str (buffer-substring-no-properties
+                                      (max (point-min) (- (point-max) n))
+                                      (point-max))))
+                            (string-trim str))))))
+        (when (and status content)
+          (push (list :buffer buf-name
+                      :status (plist-get status :status)
+                      :output content)
+                results))))
+    (if (null results)
+        (format "No agents found in %s" project-path)
+      (with-temp-buffer
+        (insert (format "=== Agents in %s ===\n\n"
+                        (file-name-nondirectory (directory-file-name project-path))))
+        (dolist (agent (nreverse results))
+          (insert (format "--- %s [%s] ---\n"
+                          (plist-get agent :buffer)
+                          (plist-get agent :status)))
+          (insert (plist-get agent :output))
+          (insert "\n\n"))
+        (buffer-string)))))
 
 ;;;###autoload
 (defun meta-agent-shell-list-dispatchers ()
@@ -832,6 +921,7 @@ Returns alist of (project-name . buffer-name) for live dispatchers."
   "Send MESSAGE to the dispatcher for PROJECT-NAME.
 The dispatcher will route it to the appropriate agent.
 FROM specifies the sender name (required).
+If the dispatcher is busy, the message is queued for delivery when ready.
 Returns t on success, nil if no dispatcher found."
   (let ((entry (cl-find-if
                 (lambda (e)
@@ -844,8 +934,10 @@ Returns t on success, nil if no dispatcher found."
                (formatted-message (format "Message from %s:\n\n%s" from message)))
           (meta-agent-shell--log-icc from dispatcher-name message "send")
           (with-current-buffer (cdr entry)
-            (shell-maker-submit :input formatted-message)
-            t))
+            (if (shell-maker-busy)
+                (agent-shell--enqueue-request :prompt formatted-message)
+              (shell-maker-submit :input formatted-message)))
+          t)
       nil)))
 
 ;;;###autoload
@@ -853,6 +945,7 @@ Returns t on success, nil if no dispatcher found."
   "Ask QUESTION to the dispatcher for PROJECT-NAME.
 The dispatcher is instructed to send the reply back.
 FROM specifies who is asking (buffer name for reply); required.
+If the dispatcher is busy, the question is queued for delivery when ready.
 Returns t on success, nil if no dispatcher found."
   (let ((entry (cl-find-if
                 (lambda (e)
@@ -861,17 +954,19 @@ Returns t on success, nil if no dispatcher found."
                    (file-name-nondirectory (directory-file-name (car e)))))
                 meta-agent-shell--dispatchers)))
     (if (and entry (buffer-live-p (cdr entry)) from)
-        (let ((dispatcher-name (buffer-name (cdr entry))))
-          (meta-agent-shell--log-icc from dispatcher-name question)
-          (with-current-buffer (cdr entry)
-            (shell-maker-submit
-             :input (format "Question from %s:
+        (let* ((dispatcher-name (buffer-name (cdr entry)))
+               (formatted-question (format "Question from %s:
 
 %s
 
 Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
-                            from question from))
-            t))
+                                           from question from)))
+          (meta-agent-shell--log-icc from dispatcher-name question)
+          (with-current-buffer (cdr entry)
+            (if (shell-maker-busy)
+                (agent-shell--enqueue-request :prompt formatted-question)
+              (shell-maker-submit :input formatted-question)))
+          t)
       nil)))
 
 ;;;###autoload

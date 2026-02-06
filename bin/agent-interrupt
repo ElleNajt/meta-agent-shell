@@ -1,0 +1,12 @@
+#!/bin/bash
+# agent-interrupt - Interrupt a running agent
+# Usage: agent-interrupt "buffer-name"
+
+if [ $# -lt 1 ]; then
+    echo "Usage: agent-interrupt \"buffer-name\"" >&2
+    exit 1
+fi
+
+target="$1"
+
+emacsclient --eval "(meta-agent-shell-interrupt-session \"$target\" $$)"

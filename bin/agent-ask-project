@@ -1,0 +1,19 @@
+#!/bin/bash
+# agent-ask-project - Ask a question to an agent by project name
+# Usage: agent-ask-project "project-name" "question"
+
+if [ $# -lt 2 ]; then
+    echo "Usage: agent-ask-project \"project-name\" \"question\"" >&2
+    exit 1
+fi
+
+project="$1"
+question="$2"
+
+me=$(emacsclient --eval "(meta-agent-shell-whoami $$)" | tr -d '"')
+if [ "$me" = "nil" ]; then
+    echo "Error: Could not determine sender identity" >&2
+    exit 1
+fi
+
+emacsclient --eval "(meta-agent-shell-ask-project \"$project\" \"$question\" \"$me\")"

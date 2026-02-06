@@ -1,0 +1,9 @@
+#!/bin/bash
+# agent-list - List active agent sessions
+# Usage: agent-list [--dispatchers]
+
+if [ "$1" = "--dispatchers" ]; then
+    emacsclient --eval "(meta-agent-shell-list-dispatchers)"
+else
+    emacsclient --eval "(meta-agent-shell-list-sessions)"
+fi

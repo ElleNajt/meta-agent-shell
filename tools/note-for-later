@@ -1,0 +1,31 @@
+#!/bin/bash
+# note-for-later - Append timestamped notes to .tasks/agent_<desc>.org
+#
+# Usage: note-for-later <desc> <note>
+#
+# Example: note-for-later refactor "Need to handle edge case in parse_args"
+#          -> Appends to .tasks/agent_refactor.org
+
+set -e
+
+if [[ $# -lt 2 ]]; then
+    echo "Usage: note-for-later <desc> <note>"
+    echo "Example: note-for-later refactor \"Need to revisit error handling\""
+    exit 1
+fi
+
+desc="$1"
+shift
+note="$*"
+
+tasks_dir=".tasks"
+file="${tasks_dir}/agent_${desc}.org"
+timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+mkdir -p "$tasks_dir"
+
+echo "** $timestamp" >> "$file"
+echo "$note" >> "$file"
+echo "" >> "$file"
+
+echo "Note added to $file"
