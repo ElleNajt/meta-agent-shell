@@ -181,15 +181,13 @@ All inter-agent communication logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc
 
 Event types: =send=, =ask=, =view=, =close=, =interrupt=
 
-** Visualization
+** Logs Visualization
 
 #+begin_example
 ./tools/icc-viz.py -o graph.png     # communication graph
 ./tools/icc-viz.py --timeline       # activity over time
 ./tools/icc-viz.py --stats          # summary statistics
 #+end_example
-
-[[file:docs/icc-graph.png]]
 
 * Sandboxed Workflow (WIP)
 
