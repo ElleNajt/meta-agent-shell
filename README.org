@@ -1,202 +1,90 @@
 #+TITLE: meta-agent-shell
 #+AUTHOR: Elle Najt
 
-A supervisory agent system for [[https://github.com/xenodium/agent-shell][agent-shell]] sessions. Coordinate work between agents and manage multi-agent projects.
+Multi-agent coordination for [[https://github.com/xenodium/agent-shell][agent-shell]]. Dispatchers route work to agents, agents communicate with each other, tasks live in org files that show up in your agenda.
 
 [[file:docs/screenshot.png]]
 
-* Architecture
+* What This Does
 
-#+begin_example
-User (human)
-    ↓
-Meta-Agent (~/.claude-meta/)
-    ↓ coordination
-Project Dispatchers (one per multi-agent project)
-    ↓ routes work, manages agent lifecycle
-Individual Agents (named, e.g. "(myproject)-Refactor")
-#+end_example
-
-- *Meta-agent*: Supervisory Claude that can see all sessions and coordinate between them
-- *Dispatcher*: Per-project coordinator that routes work to agents, can spawn/close them
-- *Agent*: Individual Claude working on a specific task, with descriptive names
-
-* Features
-
-- *Named agents* - Descriptive buffer names like ~(project)-Refactor~ instead of numbers
-- *Project dispatchers* - Route messages to the right agent within a project
-- *Inter-agent messaging* - Send messages between agents, ask questions and get replies
-- *Auto-detection* - Agents automatically know their own identity via process hierarchy
-- *ICC logging* - All inter-agent communication logged to =~/.meta-agent-shell/logs/=
-- *Cross-session search* - Find errors, patterns, or content across all agents
+- *Dispatchers* coordinate multiple agents on a project - spawn agents, route messages, manage lifecycle
+- *Inter-agent communication* via simple CLI tools (~agent-send~, ~agent-ask~)
+- *Task tracking* in org files (~.tasks/current.org~) - tasks show up in Emacs agenda
+- *ICC logging* - all agent-to-agent messages logged as JSONL for debugging/analysis
+- *Panic button* - ~M-x meta-agent-shell-interrupt-all~ stops everything
 
 * Setup
 
-** 1. Install the package
+#+begin_src bash
+./setup.sh
+#+end_src
+
+This:
+1. Creates =~/.claude-meta/= directory
+2. Links the meta-agent CLAUDE.md
+3. Tells you what to add to your shell config and =~/.claude/CLAUDE.md=
+
+Then add to your Emacs config:
 
 #+begin_src elisp
 (use-package meta-agent-shell
   :after agent-shell)
 #+end_src
 
-** 2. Create the meta-agent directory
+* Usage
 
-#+begin_src bash
-mkdir -p ~/.claude-meta
-#+end_src
-
-** 3. Link the meta-agent instructions
-
-#+begin_src bash
-ln -s /path/to/meta-agent-shell/meta-claude.md ~/.claude-meta/CLAUDE.md
-#+end_src
-
-** 4. Add bin/ to your PATH
-
-So agents can use the helper scripts:
-
-#+begin_src bash
-export PATH="/path/to/meta-agent-shell/bin:$PATH"
-#+end_src
-
-** 5. Add agent-overview.md to your global CLAUDE.md
-
-This teaches all agents how to communicate with each other and search across sessions. Add to =~/.claude/CLAUDE.md=:
-
-#+begin_example
-@/path/to/meta-agent-shell/agent-overview.md
-#+end_example
-
-** 6. Start the meta-agent
-
-#+begin_example
-M-x meta-agent-shell-start
-#+end_example
-
-* Agent CLI Tools
-
-Agents can communicate using these shell commands (auto-detects sender):
-
-#+begin_src bash
-# Send a message to another agent
-agent-send "target-buffer" "message"
-
-# Ask another agent a question (they'll reply back)
-agent-ask "target-buffer" "question"
-
-# Find out your own buffer name
-agent-whoami
-#+end_src
-
-Examples:
-
-#+begin_src bash
-agent-send "(myproject)-Tests" "Tests are passing, ready for review"
-agent-ask "(myproject)-Dispatcher" "What should I work on next?"
-#+end_src
-
-* Buffer Naming
-
-Named agents and dispatchers use descriptive names:
-
-- *Agents*: ~(ProjectName)-AgentName~ e.g. ~(myproject)-Refactor~
-- *Dispatchers*: ~(ProjectName)-Dispatcher~ e.g. ~(myproject)-Dispatcher~
-
-Use descriptive agent names: =Tests=, =Bugfix=, =Feature-Auth=, =Refactor=, etc.
-
-* Elisp Tools
-
-For more control, agents can call elisp directly:
-
-** Session Management
-
-| Function                                                   | Description                 |
-|------------------------------------------------------------+-----------------------------|
-| ~(meta-agent-shell-list-sessions)~                         | List all sessions with status |
-| ~(meta-agent-shell-start-named-agent "~/path" "Name" "msg")~ | Start named agent (preferred) |
-| ~(meta-agent-shell-close-session "buffer")~                | Close/kill session          |
-| ~(meta-agent-shell-interrupt-project "name")~              | Interrupt running agent     |
-| ~(meta-agent-shell-whoami PID)~                            | Get buffer name from PID    |
-
-** Communication
-
-| Function                                                      | Description              |
-|---------------------------------------------------------------+--------------------------|
-| ~(meta-agent-shell-send-to-session "buffer" "msg" nil PID)~   | Send with auto-detect    |
-| ~(meta-agent-shell-send-to-session "buffer" "msg" "from")~    | Send with explicit from  |
-| ~(meta-agent-shell-ask-session "buffer" "question" "from")~   | Ask and get reply back   |
-| ~(meta-agent-shell-search-sessions "pattern")~                | Search all sessions for pattern |
-
-** Dispatchers
-
-| Function                                               | Description              |
-|--------------------------------------------------------+--------------------------|
-| ~(meta-agent-shell-start-dispatcher "~/project")~      | Start dispatcher for project |
-| ~(meta-agent-shell-list-dispatchers)~                  | List active dispatchers  |
-| ~(meta-agent-shell-get-project-agents "~/path")~       | List agents in project   |
-
-* Project Dispatchers
-
-When you have multiple agents working on the same project, a dispatcher coordinates them.
-
-*Start a dispatcher:*
+** Start a dispatcher for a project
 
 #+begin_example
 M-x meta-agent-shell-start-dispatcher
 #+end_example
 
-This creates a buffer named ~(projectname)-Dispatcher~.
+The dispatcher can spawn agents, assign tasks, and coordinate work.
 
-Dispatchers run in =~/.claude-meta/dispatchers/{project-name}/=.
+** Agents communicate via CLI
 
-* ICC Logging
+#+begin_src bash
+agent-send "buffer-name" "message"
+agent-ask "buffer-name" "question"   # reply routed back automatically
+agent-whoami                          # print own buffer name
+#+end_src
 
-All inter-agent communication is logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.jsonl= as machine-readable JSONL (one JSON object per line).
+Agents are taught these tools via =agent-overview.md= (included in setup).
 
-* Configuration
+** Task tracking
 
-#+begin_src elisp
-;; Directory for meta session (default: ~/.claude-meta/)
-(setq meta-agent-shell-directory "~/.claude-meta/")
+Dispatchers write tasks to =.tasks/current.org= in the project:
 
-;; Directory for ICC logs (default: ~/.meta-agent-shell/logs/)
-(setq meta-agent-shell-log-directory "~/.meta-agent-shell/logs/")
+#+begin_src org
+** TODO Refactor auth middleware :@claude:
+   :PROPERTIES:
+   :ASSIGNED: (myproject)-Refactor
+   :END:
+#+end_src
+
+Add =.tasks/= to your =org-agenda-files= and tasks show up in your agenda.
+
+* How Agent Identity Works
+
+When an agent runs ~agent-whoami~, it passes its shell PID. The system walks up the process tree:
+
+#+begin_example
+$$ (shell) → zsh → claude → node (ACP client)
+#+end_example
+
+Each agent-shell buffer owns an ACP client process. Match the PID, find the buffer. Agents identify themselves without knowing their buffer name.
+
+* Logging
+
+All inter-agent messages logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.jsonl=:
+
+#+begin_src json
+{"timestamp":"2026-02-05T14:32:01","type":"ask","from":"(proj)-A","to":"(proj)-B","message":"..."}
 #+end_src
 
 * Heartbeat (Optional)
 
-The heartbeat sends periodic status updates to the meta-agent with all active sessions and your standing instructions. Useful if you want the meta-agent to proactively monitor and coordinate.
-
-** Setup
-
-1. Create a heartbeat file with your standing instructions:
-
-#+begin_src bash
-echo "Check on agent progress. Alert me if any agent seems stuck." > ~/heartbeat.org
-#+end_src
-
-2. Configure and start:
-
-#+begin_src elisp
-(setq meta-agent-shell-heartbeat-file "~/heartbeat.org")
-(setq meta-agent-shell-heartbeat-interval 900)  ; seconds (default: 15 min)
-(setq meta-agent-shell-heartbeat-cooldown 300)  ; delay after user interaction
-#+end_src
-
-3. Start the heartbeat timer:
-
-#+begin_example
-M-x meta-agent-shell-heartbeat-start
-#+end_example
-
-The meta-agent receives a formatted status of all sessions plus your instructions at each interval.
-
-* How Auto-Detection Works
-
-When an agent runs =agent-send= or =agent-whoami=, it passes its shell PID (=$$=).
-The system walks up the process tree to find the ACP client process, then looks up
-which agent-shell buffer owns that client. This lets agents identify themselves
-without needing to know their buffer name.
+Periodic status updates to a meta-agent. See =M-x describe-function meta-agent-shell-heartbeat-start=.
 
 * License
 
