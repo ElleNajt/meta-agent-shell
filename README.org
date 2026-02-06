@@ -1,0 +1,174 @@
+#+TITLE: meta-agent-shell
+#+AUTHOR: Elle Najt
+
+A supervisory agent system for [[https://github.com/xenodium/agent-shell][agent-shell]] sessions. Coordinate work between agents and manage multi-agent projects.
+
+[[file:docs/screenshot.png]]
+
+* Architecture
+
+#+begin_example
+User (human)
+    ↓
+Meta-Agent (~/.claude-meta/)
+    ↓ coordination
+Project Dispatchers (one per multi-agent project)
+    ↓ routes work, manages agent lifecycle
+Individual Agents (named, e.g. "(myproject)-Refactor")
+#+end_example
+
+- *Meta-agent*: Supervisory Claude that can see all sessions and coordinate between them
+- *Dispatcher*: Per-project coordinator that routes work to agents, can spawn/close them
+- *Agent*: Individual Claude working on a specific task, with descriptive names
+
+* Features
+
+- *Named agents* - Descriptive buffer names like ~(project)-Refactor~ instead of numbers
+- *Project dispatchers* - Route messages to the right agent within a project
+- *Inter-agent messaging* - Send messages between agents, ask questions and get replies
+- *Auto-detection* - Agents automatically know their own identity via process hierarchy
+- *ICC logging* - All inter-agent communication logged to =~/.meta-agent-shell/logs/=
+- *Cross-session search* - Find errors, patterns, or content across all agents
+
+* Setup
+
+** 1. Install the package
+
+#+begin_src elisp
+(use-package meta-agent-shell
+  :after agent-shell)
+#+end_src
+
+** 2. Create the meta-agent directory
+
+#+begin_src bash
+mkdir -p ~/.claude-meta
+#+end_src
+
+** 3. Link the meta-agent instructions
+
+#+begin_src bash
+ln -s /path/to/meta-agent-shell/meta-claude.md ~/.claude-meta/CLAUDE.md
+#+end_src
+
+** 4. Add bin/ to your PATH
+
+So agents can use the helper scripts:
+
+#+begin_src bash
+export PATH="/path/to/meta-agent-shell/bin:$PATH"
+#+end_src
+
+** 5. Add agent-overview.md to your global CLAUDE.md
+
+So all agents understand the system, add to =~/.claude/CLAUDE.md=:
+
+#+begin_example
+@/path/to/meta-agent-shell/agent-overview.md
+#+end_example
+
+** 6. Start the meta-agent
+
+#+begin_example
+M-x meta-agent-shell-start
+#+end_example
+
+* Agent CLI Tools
+
+Agents can communicate using these shell commands (auto-detects sender):
+
+#+begin_src bash
+# Send a message to another agent
+agent-send "target-buffer" "message"
+
+# Ask another agent a question (they'll reply back)
+agent-ask "target-buffer" "question"
+
+# Find out your own buffer name
+agent-whoami
+#+end_src
+
+Examples:
+
+#+begin_src bash
+agent-send "(myproject)-Tests" "Tests are passing, ready for review"
+agent-ask "(myproject)-Dispatcher" "What should I work on next?"
+#+end_src
+
+* Buffer Naming
+
+Named agents and dispatchers use descriptive names:
+
+- *Agents*: ~(ProjectName)-AgentName~ e.g. ~(myproject)-Refactor~
+- *Dispatchers*: ~(ProjectName)-Dispatcher~ e.g. ~(myproject)-Dispatcher~
+
+Use descriptive agent names: =Tests=, =Bugfix=, =Feature-Auth=, =Refactor=, etc.
+
+* Elisp Tools
+
+For more control, agents can call elisp directly:
+
+** Session Management
+
+| Function                                                   | Description                 |
+|------------------------------------------------------------+-----------------------------|
+| ~(meta-agent-shell-list-sessions)~                         | List all sessions with status |
+| ~(meta-agent-shell-start-named-agent "~/path" "Name" "msg")~ | Start named agent (preferred) |
+| ~(meta-agent-shell-close-session "buffer")~                | Close/kill session          |
+| ~(meta-agent-shell-interrupt-project "name")~              | Interrupt running agent     |
+| ~(meta-agent-shell-whoami PID)~                            | Get buffer name from PID    |
+
+** Communication
+
+| Function                                                      | Description              |
+|---------------------------------------------------------------+--------------------------|
+| ~(meta-agent-shell-send-to-session "buffer" "msg" nil PID)~   | Send with auto-detect    |
+| ~(meta-agent-shell-send-to-session "buffer" "msg" "from")~    | Send with explicit from  |
+| ~(meta-agent-shell-ask-session "buffer" "question" "from")~   | Ask and get reply back   |
+
+** Dispatchers
+
+| Function                                               | Description              |
+|--------------------------------------------------------+--------------------------|
+| ~(meta-agent-shell-start-dispatcher "~/project")~      | Start dispatcher for project |
+| ~(meta-agent-shell-list-dispatchers)~                  | List active dispatchers  |
+| ~(meta-agent-shell-get-project-agents "~/path")~       | List agents in project   |
+
+* Project Dispatchers
+
+When you have multiple agents working on the same project, a dispatcher coordinates them.
+
+*Start a dispatcher:*
+
+#+begin_example
+M-x meta-agent-shell-start-dispatcher
+#+end_example
+
+This creates a buffer named ~(projectname)-Dispatcher~.
+
+Dispatchers run in =~/.claude-meta/dispatchers/{project-name}/=.
+
+* ICC Logging
+
+All inter-agent communication is logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.jsonl= as machine-readable JSONL (one JSON object per line).
+
+* Configuration
+
+#+begin_src elisp
+;; Directory for meta session (default: ~/.claude-meta/)
+(setq meta-agent-shell-directory "~/.claude-meta/")
+
+;; Directory for ICC logs (default: ~/.meta-agent-shell/logs/)
+(setq meta-agent-shell-log-directory "~/.meta-agent-shell/logs/")
+#+end_src
+
+* How Auto-Detection Works
+
+When an agent runs =agent-send= or =agent-whoami=, it passes its shell PID (=$$=).
+The system walks up the process tree to find the ACP client process, then looks up
+which agent-shell buffer owns that client. This lets agents identify themselves
+without needing to know their buffer name.
+
+* License
+
+GPL-3.0
