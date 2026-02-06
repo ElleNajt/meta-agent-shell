@@ -61,7 +61,7 @@ export PATH="/path/to/meta-agent-shell/bin:$PATH"
 
 ** 5. Add agent-overview.md to your global CLAUDE.md
 
-So all agents understand the system, add to =~/.claude/CLAUDE.md=:
+This teaches all agents how to communicate with each other and search across sessions. Add to =~/.claude/CLAUDE.md=:
 
 #+begin_example
 @/path/to/meta-agent-shell/agent-overview.md
@@ -125,6 +125,7 @@ For more control, agents can call elisp directly:
 | ~(meta-agent-shell-send-to-session "buffer" "msg" nil PID)~   | Send with auto-detect    |
 | ~(meta-agent-shell-send-to-session "buffer" "msg" "from")~    | Send with explicit from  |
 | ~(meta-agent-shell-ask-session "buffer" "question" "from")~   | Ask and get reply back   |
+| ~(meta-agent-shell-search-sessions "pattern")~                | Search all sessions for pattern |
 
 ** Dispatchers
 
