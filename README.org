@@ -120,7 +120,41 @@ The dispatcher can spawn containerized workers and coordinate between them, but 
 
 * Heartbeat (Optional)
 
-Periodic status updates to a meta-agent. See ~M-x describe-function meta-agent-shell-heartbeat-start~.
+Sends periodic status updates to the meta-agent with all active sessions and your standing instructions.
+
+** Setup
+
+1. Create a file with standing instructions:
+
+#+begin_src bash
+echo "Check on agent progress. Alert me if any seem stuck." > ~/heartbeat.org
+#+end_src
+
+2. Configure:
+
+#+begin_src elisp
+(setq meta-agent-shell-heartbeat-file "~/heartbeat.org")
+(setq meta-agent-shell-heartbeat-interval 900)  ; seconds between heartbeats (default 15 min)
+(setq meta-agent-shell-heartbeat-cooldown 300)  ; delay after you message the meta-agent
+#+end_src
+
+3. Start:
+
+#+begin_example
+M-x meta-agent-shell-heartbeat-start
+#+end_example
+
+** What it sends
+
+Each heartbeat includes:
+- List of all active sessions with status (working/idle)
+- Recent output from watched projects (if configured)
+- Your standing instructions from the heartbeat file
+
+** Other commands
+
+- ~M-x meta-agent-shell-heartbeat-stop~ - stop the timer
+- ~M-x meta-agent-shell-heartbeat-send-now~ - send one immediately
 
 * License
 
