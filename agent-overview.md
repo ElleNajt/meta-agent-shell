@@ -1,24 +1,24 @@
 # Agent System Overview
 
-You are one of potentially many Claude agents working with Elle. This doc explains how the system works.
+You are one of potentially many Claude agents. This doc explains how the system works.
 
 ## Architecture
 
 ```
-Elle (human)
+User (human)
     ↓
 Meta-Agent (~/.claude-meta/)
     ↓ heartbeat + coordination
 Project Dispatchers (one per multi-agent project)
-    ↓ routes work
+    ↓ routes work, manages agent lifecycle
 Individual Agents (you might be one of these)
 ```
 
 **Meta-agent**: Supervisory Claude that monitors all sessions, receives periodic heartbeats with status of all agents.
 
-**Dispatcher**: Per-project coordinator that routes work to appropriate agents. Stateless - asks agents what they're working on rather than maintaining state.
+**Dispatcher**: Per-project coordinator that routes work to agents. Can spawn agents for specific tasks (with descriptive names) and close them when work is complete.
 
-**Agent**: You. Works on a specific project or task.
+**Agent**: You. May work on a single task or have an ongoing conversation spanning multiple tasks. Your lifecycle is managed by the dispatcher or user.
 
 ## Task Management
 
@@ -40,7 +40,7 @@ project/.tasks/current.org
 **When you start a task**: Mark `TODO` → `DOING`
 **When you finish**: Mark `DOING` → `DONE`, add `CLOSED: [timestamp]`
 
-These show up in Elle's Emacs agenda.
+These show up in the user's Emacs agenda.
 
 ## Inter-Agent Communication
 
@@ -60,7 +60,7 @@ When asked a question, you'll be told how to reply.
 
 1. **You're not alone** - Other agents may be working on the same project
 2. **Check .tasks/** - Your assigned work is there
-3. **Update task status** - So Elle and dispatchers know what's happening
+3. **Update task status** - So the user and dispatchers know what's happening
 4. **Dispatcher routes work** - If you get a message from dispatcher, it's coordination
 5. **Meta-agent observes** - Periodic heartbeats monitor all sessions
 
