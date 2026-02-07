@@ -642,41 +642,48 @@ If AUTO-ALLOW is non-nil (or `meta-agent-shell-restrict-targets' is t),
 automatically add the new buffer to the allowed targets list.
 Returns the buffer name of the new session, or nil if folder doesn't exist.
 
-Note: `meta-agent-shell-start-function' should accept an optional buffer-name
-as its second argument for this to work cleanly."
+Note: `meta-agent-shell-start-function' must:
+- Accept (ARG BUFFER-NAME) where ARG is passed as first argument
+- Recognize \\='use-current-dir as ARG to use `default-directory' without
+  triggering container mode (as opposed to \\='(16) which may enable containers)
+- Accept BUFFER-NAME as the second argument for naming the buffer"
   (let ((dir (expand-file-name folder)))
     (if (file-directory-p dir)
-        (let* ((default-directory dir)
-               (project-name (file-name-nondirectory (directory-file-name dir)))
-               (buffer-name name))
-          ;; Run before-spawn hook (e.g., for window layout setup)
+        (progn
+          ;; Run before-spawn hook FIRST (e.g., for window layout setup)
+          ;; This may change selected window/buffer, so run before binding default-directory
           (run-hooks 'meta-agent-shell-before-spawn-hook)
-          ;; Pass buffer-name as second arg to start function
-          ;; Workaround: agent-shell may fail if a buffer with this name was
-          ;; recently killed (async cleanup race). Retry once after brief delay.
-          (condition-case err
-              (funcall meta-agent-shell-start-function
-                       (car meta-agent-shell-start-function-args)
-                       buffer-name)
-            (error
-             (message "Agent start failed (%s), retrying after cleanup delay..." err)
-             (sit-for 0.5)  ; allow pending events to process
-             (funcall meta-agent-shell-start-function
-                      (car meta-agent-shell-start-function-args)
-                      buffer-name)))
-          ;; Auto-register if restrictions are enabled or explicitly requested
-          (when (or auto-allow meta-agent-shell-restrict-targets)
-            (meta-agent-shell-allow-target buffer-name))
-          ;; Run after-spawn hook (e.g., for post-spawn setup)
-          (run-hooks 'meta-agent-shell-after-spawn-hook)
-          (when initial-message
-            (run-at-time 0.5 nil
-                         (lambda (buf msg)
-                           (when (buffer-live-p buf)
-                             (with-current-buffer buf
-                               (shell-maker-submit :input msg))))
-                         (current-buffer) initial-message))
-          (buffer-name (current-buffer)))
+          (let* ((default-directory dir)
+                 (project-name (file-name-nondirectory (directory-file-name dir)))
+                 (buffer-name name)
+                 ;; Signal "use current directory" without container mode
+                 (start-arg 'use-current-dir))
+            ;; Pass buffer-name as second arg to start function
+            ;; Workaround: agent-shell may fail if a buffer with this name was
+            ;; recently killed (async cleanup race). Retry once after brief delay.
+            (condition-case err
+                (funcall meta-agent-shell-start-function
+                         start-arg
+                         buffer-name)
+              (error
+               (message "Agent start failed (%s), retrying after cleanup delay..." err)
+               (sit-for 0.5)  ; allow pending events to process
+               (funcall meta-agent-shell-start-function
+                        start-arg
+                        buffer-name)))
+            ;; Auto-register if restrictions are enabled or explicitly requested
+            (when (or auto-allow meta-agent-shell-restrict-targets)
+              (meta-agent-shell-allow-target buffer-name))
+            ;; Run after-spawn hook (e.g., for post-spawn setup)
+            (run-hooks 'meta-agent-shell-after-spawn-hook)
+            (when initial-message
+              (run-at-time 0.5 nil
+                           (lambda (buf msg)
+                             (when (buffer-live-p buf)
+                               (with-current-buffer buf
+                                 (shell-maker-submit :input msg))))
+                           (current-buffer) initial-message))
+            (buffer-name (current-buffer))))
       (message "Directory does not exist: %s" dir)
       nil)))
 
@@ -839,17 +846,23 @@ If no dispatcher exists, offer to create one."
 ;;;###autoload
 (defun meta-agent-shell-start-or-dispatcher ()
   "Start a dispatcher or normal agent shell for the current project.
+If in the meta-agent directory, start the meta-agent instead.
 If no dispatcher exists for the project, start one.
 If a dispatcher already exists, start a normal agent shell."
   (interactive)
   (let* ((project-path (expand-file-name (meta-agent-shell--get-project-path)))
-         (entry (assoc project-path meta-agent-shell--dispatchers)))
-    (if (and entry (buffer-live-p (cdr entry)))
-        ;; Dispatcher exists, start normal agent shell
-        (let ((default-directory project-path))
-          (apply meta-agent-shell-start-function meta-agent-shell-start-function-args))
-      ;; No dispatcher, start one
-      (meta-agent-shell-start-dispatcher project-path))))
+         (meta-path (expand-file-name meta-agent-shell-directory)))
+    ;; Check if we're in the meta-agent directory
+    (if (string-prefix-p meta-path project-path)
+        (meta-agent-shell-start)
+      ;; Normal project - check for dispatcher
+      (let ((entry (assoc project-path meta-agent-shell--dispatchers)))
+        (if (and entry (buffer-live-p (cdr entry)))
+            ;; Dispatcher exists, start normal agent shell
+            (let ((default-directory project-path))
+              (apply meta-agent-shell-start-function meta-agent-shell-start-function-args))
+          ;; No dispatcher, start one
+          (meta-agent-shell-start-dispatcher project-path))))))
 
 ;;;###autoload
 (defun meta-agent-shell-get-project-agents (project-path)
