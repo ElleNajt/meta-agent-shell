@@ -189,13 +189,17 @@ Event types: =send=, =ask=, =view=, =close=, =interrupt=
 ./tools/icc-viz.py --stats          # summary statistics
 #+end_example
 
+* Testing
+
+See [[file:tests/test-instructions.md][tests/test-instructions.md]] for a manual test workflow you can give to an agent. Each test includes expected behavior so the agent can verify things work correctly.
+
 * Sandboxed Workflow (WIP)
 
-See [[file:docs/sandboxing.org][docs/sandboxing.org]] for running workers in containers with restricted dispatcher permissions.
+These workflows generally require using =bypassPermissions= mode to be effective.
 
-Note: Still needs a tunnel from containerized agents back to the host dispatcher.
+One option is to run everything (including your emacs) in a VM with limited credentials. 
 
-Alternative: Run everything in a VM with limited credentials. This requires =bypassPermissions= mode since the permission prompts don't work well with multi-agent coordination.
+For a sketch of a VMless solutions, see [[file:docs/sandboxing.org][docs/sandboxing.org]] for running workers in containers with restricted dispatcher permissions. Note: Still needs a tunnel from containerized agents back to the host dispatcher.
 
 * License
 
