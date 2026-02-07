@@ -857,6 +857,15 @@ Always use the list command to get exact buffer names - don't guess the format.
 2. Route to existing agent, or spawn a new named agent for the task
 3. For status checks, use `agent-shell-ask` to query agents
 
+## Emergency Stop
+
+If agents are stuck or going in the wrong direction, you can interrupt all of them:
+```bash
+emacsclient --eval '(meta-agent-shell-big-red-button)'
+```
+
+This interrupts (not kills) all agent sessions, including yourself. Use it when you need everyone to stop and regroup.
+
 ## Agent Guidelines
 
 When spawning agents, they should:
