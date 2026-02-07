@@ -827,7 +827,14 @@ Always use the list command to get exact buffer names - don't guess the format.
 
 1. Check which agents exist with the list command
 2. Route to existing agent, or spawn a new named agent for the task
-3. For status checks, use `agent-shell-ask` to query agents"
+3. For status checks, use `agent-shell-ask` to query agents
+
+## Agent Guidelines
+
+When spawning agents, they should:
+- Complete their assigned task
+- If appropriate, commit changes with a descriptive message before reporting back
+- Report completion to their spawner"
   "Instructions sent to dispatchers at startup.
 Contains %s placeholders for project-path.")
 
