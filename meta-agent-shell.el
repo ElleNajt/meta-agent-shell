@@ -84,6 +84,12 @@ These are passed as the first argument (e.g., prefix arg)."
   :type 'string
   :group 'meta-agent-shell)
 
+(defcustom meta-agent-shell-killed-agents-directory "~/.agent-shell/meta-agent-shell/"
+  "Directory for storing killed agent state.
+Agent state is stored as JSON files under <dir>/<project>/<agent-name>.json."
+  :type 'string
+  :group 'meta-agent-shell)
+
 (defcustom meta-agent-shell-before-spawn-hook nil
   "Hook run before spawning a new named agent.
 Called before the agent is created, useful for setting up window layout.
@@ -248,6 +254,51 @@ Returns the buffer or nil if not found."
                          (name (file-name-nondirectory (directory-file-name project-path))))
                     (string-equal-ignore-case name project-name))))
               (meta-agent-shell--active-buffers)))
+
+(defvar meta-agent-shell--initial-tasks (make-hash-table :test 'equal)
+  "Hash table mapping buffer names to their initial task messages.
+Populated when agents are spawned via `meta-agent-shell-start-named-agent'.")
+
+(defun meta-agent-shell--sanitize-filename (name)
+  "Sanitize NAME for use as a filename.
+Replaces problematic characters with underscores."
+  (replace-regexp-in-string "[/\\\\:*?\"<>|]" "_" name))
+
+(defun meta-agent-shell--save-killed-agent (buffer)
+  "Save the state of BUFFER to disk before it's killed.
+Only saves if BUFFER is an agent-shell buffer (not meta or dispatcher)."
+  (when (and (buffer-live-p buffer)
+             (memq buffer (agent-shell-buffers))
+             (not (eq buffer meta-agent-shell--buffer))
+             (not (meta-agent-shell--dispatcher-buffer-p buffer)))
+    (with-current-buffer buffer
+      (let* ((buf-name (buffer-name buffer))
+             (project-path (meta-agent-shell--get-project-path))
+             (project-name (file-name-nondirectory (directory-file-name project-path)))
+             (busy (and (fboundp 'shell-maker-busy) (shell-maker-busy)))
+             (initial-task (gethash buf-name meta-agent-shell--initial-tasks))
+             (last-output (let ((str (buffer-substring-no-properties
+                                      (max (point-min) (- (point-max) 500))
+                                      (point-max))))
+                            (string-trim str)))
+             (timestamp (format-time-string "%Y-%m-%dT%H:%M:%S"))
+             (safe-name (meta-agent-shell--sanitize-filename buf-name))
+             (dir (expand-file-name project-name
+                                    (expand-file-name meta-agent-shell-killed-agents-directory)))
+             (file (expand-file-name (concat safe-name ".json") dir))
+             (data `((name . ,buf-name)
+                     (project . ,project-name)
+                     (project_path . ,project-path)
+                     (initial_task . ,initial-task)
+                     (last_output . ,last-output)
+                     (timestamp . ,timestamp)
+                     (was_busy . ,busy))))
+        ;; Clean up initial-task tracking
+        (remhash buf-name meta-agent-shell--initial-tasks)
+        ;; Save to disk
+        (make-directory dir t)
+        (with-temp-file file
+          (insert (json-encode data)))))))
 
 (defun meta-agent-shell--get-buffer-status (buffer)
   "Get status info for BUFFER as a plist."
@@ -676,7 +727,10 @@ Note: `meta-agent-shell-start-function' must:
               (meta-agent-shell-allow-target buffer-name))
             ;; Run after-spawn hook (e.g., for post-spawn setup)
             (run-hooks 'meta-agent-shell-after-spawn-hook)
+            ;; Track initial task for killed agent persistence
             (when initial-message
+              (puthash (buffer-name (current-buffer)) initial-message
+                       meta-agent-shell--initial-tasks)
               (run-at-time 0.5 nil
                            (lambda (buf msg)
                              (when (buffer-live-p buf)
@@ -881,9 +935,11 @@ Returns list of buffer names for agents in that project."
 (defun meta-agent-shell-view-project-agents (project-path &optional num-chars)
   "View recent output from all agents in PROJECT-PATH.
 Returns formatted summary with buffer name and last NUM-CHARS (default 500)
-of output for each agent. Useful for dispatchers to get quick status."
+of output for each agent. Also shows recently killed agents.
+Useful for dispatchers to get quick status."
   (let* ((project-path (expand-file-name project-path))
          (agents (meta-agent-shell-get-project-agents project-path))
+         (killed-agents (meta-agent-shell--load-killed-agents project-path))
          (n (or num-chars 500))
          (results nil))
     (dolist (buf-name agents)
@@ -900,18 +956,32 @@ of output for each agent. Useful for dispatchers to get quick status."
                       :status (plist-get status :status)
                       :output content)
                 results))))
-    (if (null results)
-        (format "No agents found in %s" project-path)
-      (with-temp-buffer
-        (insert (format "=== Agents in %s ===\n\n"
-                        (file-name-nondirectory (directory-file-name project-path))))
+    (with-temp-buffer
+      (insert (format "=== Agents in %s ===\n\n"
+                      (file-name-nondirectory (directory-file-name project-path))))
+      (if (null results)
+          (insert "No active agents.\n\n")
         (dolist (agent (nreverse results))
           (insert (format "--- %s [%s] ---\n"
                           (plist-get agent :buffer)
                           (plist-get agent :status)))
           (insert (plist-get agent :output))
-          (insert "\n\n"))
-        (buffer-string)))))
+          (insert "\n\n")))
+      ;; Show killed agents
+      (when killed-agents
+        (insert "=== Recently Killed Agents ===\n\n")
+        (dolist (agent killed-agents)
+          (insert (format "--- %s [killed%s] ---\n"
+                          (plist-get agent :name)
+                          (if (plist-get agent :was-busy) ", was busy" "")))
+          (when (plist-get agent :initial-task)
+            (insert (format "Initial task: %s\n" (plist-get agent :initial-task))))
+          (insert (format "Killed at: %s\n" (plist-get agent :timestamp)))
+          (when (plist-get agent :last-output)
+            (insert "Last output:\n")
+            (insert (plist-get agent :last-output)))
+          (insert "\n\n")))
+      (buffer-string))))
 
 ;;;###autoload
 (defun meta-agent-shell-list-dispatchers ()
@@ -1022,6 +1092,36 @@ Returns last NUM-LINES (default 100) of the buffer content."
         (n (or num-lines 100)))
     (when (and entry (buffer-live-p (cdr entry)))
       (meta-agent-shell--get-buffer-recent-output (cdr entry) n))))
+
+;;; Killed agent tracking
+
+(defun meta-agent-shell--kill-buffer-hook ()
+  "Hook function to save agent state when buffer is killed."
+  (meta-agent-shell--save-killed-agent (current-buffer)))
+
+(add-hook 'kill-buffer-hook #'meta-agent-shell--kill-buffer-hook)
+
+(defun meta-agent-shell--load-killed-agents (project-path)
+  "Load killed agent records for PROJECT-PATH from disk.
+Returns list of plists with :name, :initial-task, :last-output, :timestamp, :was-busy."
+  (let* ((project-name (file-name-nondirectory (directory-file-name project-path)))
+         (dir (expand-file-name project-name
+                                (expand-file-name meta-agent-shell-killed-agents-directory)))
+         (results nil))
+    (when (file-directory-p dir)
+      (dolist (file (directory-files dir t "\\.json$"))
+        (condition-case nil
+            (let* ((json-object-type 'alist)
+                   (json-key-type 'symbol)
+                   (data (json-read-file file)))
+              (push (list :name (alist-get 'name data)
+                          :initial-task (alist-get 'initial_task data)
+                          :last-output (alist-get 'last_output data)
+                          :timestamp (alist-get 'timestamp data)
+                          :was-busy (alist-get 'was_busy data))
+                    results))
+          (error nil))))
+    (nreverse results)))
 
 (provide 'meta-agent-shell)
 ;;; meta-agent-shell.el ends here
