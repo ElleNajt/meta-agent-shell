@@ -16,4 +16,9 @@ if [ "$me" = "nil" ]; then
     exit 1
 fi
 
-emacsclient --eval "(meta-agent-shell-ask-project \"$project\" \"$question\" \"$me\")"
+# Escape for elisp: backslashes first, then quotes
+escaped_project=$(printf '%s' "$project" | sed 's/\\/\\\\/g; s/"/\\"/g')
+escaped_question=$(printf '%s' "$question" | sed 's/\\/\\\\/g; s/"/\\"/g')
+escaped_me=$(printf '%s' "$me" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+emacsclient --eval "(meta-agent-shell-ask-project \"$escaped_project\" \"$escaped_question\" \"$escaped_me\")"

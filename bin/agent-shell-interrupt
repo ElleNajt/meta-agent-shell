@@ -9,4 +9,7 @@ fi
 
 target="$1"
 
-emacsclient --eval "(meta-agent-shell-interrupt-session \"$target\" $$)"
+# Escape for elisp: backslashes first, then quotes
+escaped_target=$(printf '%s' "$target" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+emacsclient --eval "(meta-agent-shell-interrupt-session \"$escaped_target\" $$)"

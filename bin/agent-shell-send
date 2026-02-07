@@ -26,4 +26,8 @@ $message
 
 Reply with: agent-shell-send \"$sender\" \"your response\""
 
-emacsclient --eval "(meta-agent-shell-send-to-session \"$target\" \"$formatted_message\" nil $$)"
+# Escape for elisp: backslashes first, then quotes
+escaped_message=$(printf '%s' "$formatted_message" | sed 's/\\/\\\\/g; s/"/\\"/g')
+escaped_target=$(printf '%s' "$target" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+emacsclient --eval "(meta-agent-shell-send-to-session \"$escaped_target\" \"$escaped_message\" nil $$)"

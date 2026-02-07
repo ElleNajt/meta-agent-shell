@@ -9,4 +9,7 @@ fi
 
 project_path="$1"
 
-emacsclient --eval "(meta-agent-shell-start-dispatcher \"$project_path\")"
+# Escape for elisp: backslashes first, then quotes
+escaped_path=$(printf '%s' "$project_path" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+emacsclient --eval "(meta-agent-shell-start-dispatcher \"$escaped_path\")"

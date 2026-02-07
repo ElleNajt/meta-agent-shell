@@ -10,4 +10,7 @@ fi
 target="$1"
 lines="${2:-50}"
 
-emacsclient --eval "(meta-agent-shell-view-session \"$target\" $lines nil $$)"
+# Escape for elisp: backslashes first, then quotes
+escaped_target=$(printf '%s' "$target" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+emacsclient --eval "(meta-agent-shell-view-session \"$escaped_target\" $lines nil $$)"

@@ -26,12 +26,21 @@ if [ "$project_path" = "nil" ] || [ -z "$project_path" ]; then
     project_path="$(pwd)"
 fi
 
+# Escape for elisp: backslashes first, then quotes
+escape_elisp() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+escaped_path=$(escape_elisp "$project_path")
+escaped_name=$(escape_elisp "$name")
+
 # Format initial message with spawner info
 if [ -n "$task" ]; then
     initial_message="Spawned by: $spawner
 
 Task: $task"
-    emacsclient --eval "(meta-agent-shell-start-named-agent \"$project_path\" \"$name\" \"$initial_message\")"
+    escaped_message=$(escape_elisp "$initial_message")
+    emacsclient --eval "(meta-agent-shell-start-named-agent \"$escaped_path\" \"$escaped_name\" \"$escaped_message\")"
 else
-    emacsclient --eval "(meta-agent-shell-start-named-agent \"$project_path\" \"$name\")"
+    emacsclient --eval "(meta-agent-shell-start-named-agent \"$escaped_path\" \"$escaped_name\")"
 fi

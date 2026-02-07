@@ -15,4 +15,9 @@ if [ "$me" = "nil" ]; then
     me="an agent"
 fi
 
-emacsclient --eval "(meta-agent-shell-send-to-project \"$project\" \"$message\" \"$me\")"
+# Escape for elisp: backslashes first, then quotes
+escaped_project=$(printf '%s' "$project" | sed 's/\\/\\\\/g; s/"/\\"/g')
+escaped_message=$(printf '%s' "$message" | sed 's/\\/\\\\/g; s/"/\\"/g')
+escaped_me=$(printf '%s' "$me" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+emacsclient --eval "(meta-agent-shell-send-to-project \"$escaped_project\" \"$escaped_message\" \"$escaped_me\")"
