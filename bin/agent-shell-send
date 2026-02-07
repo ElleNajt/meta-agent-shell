@@ -3,6 +3,7 @@
 # Usage: agent-shell-send "target-buffer" "message"
 #
 # Automatically detects sender from process hierarchy.
+# Includes reply instructions so recipient knows how to respond.
 
 if [ $# -lt 2 ]; then
     echo "Usage: agent-shell-send \"target-buffer\" \"message\"" >&2
@@ -12,4 +13,17 @@ fi
 target="$1"
 message="$2"
 
-emacsclient --eval "(meta-agent-shell-send-to-session \"$target\" \"$message\" nil $$)"
+# Get sender identity
+sender=$(emacsclient --eval "(meta-agent-shell-whoami $$)" 2>/dev/null | tr -d '"')
+if [ "$sender" = "nil" ] || [ -z "$sender" ]; then
+    sender="unknown"
+fi
+
+# Format message with reply instructions
+formatted_message="Message from $sender:
+
+$message
+
+Reply with: agent-shell-send \"$sender\" \"your response\""
+
+emacsclient --eval "(meta-agent-shell-send-to-session \"$target\" \"$formatted_message\" nil $$)"
