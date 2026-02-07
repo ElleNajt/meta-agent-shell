@@ -324,13 +324,41 @@ Only saves if BUFFER is an agent-shell buffer (not meta or dispatcher)."
         (forward-line (- n-lines))
         (buffer-substring-no-properties (point) (point-max))))))
 
+(defun meta-agent-shell--expand-file-refs (text base-dir)
+  "Expand @file references in TEXT, resolving paths relative to BASE-DIR.
+Lines starting with @ followed by a file path are replaced with the
+file's contents. Missing files are silently skipped."
+  (with-temp-buffer
+    (insert text)
+    (goto-char (point-min))
+    (while (not (eobp))
+      (if (looking-at "^@\\(.+\\)$")
+          (let* ((ref (string-trim (match-string 1)))
+                 (path (expand-file-name ref base-dir)))
+            (if (file-exists-p path)
+                (let ((content (with-temp-buffer
+                                 (insert-file-contents path)
+                                 (buffer-string))))
+                  (delete-region (line-beginning-position) (line-end-position))
+                  (insert content)
+                  (unless (string-suffix-p "\n" content)
+                    (insert "\n")))
+              (delete-region (line-beginning-position)
+                             (min (1+ (line-end-position)) (point-max)))))
+        (forward-line 1)))
+    (buffer-string)))
+
 (defun meta-agent-shell--format-heartbeat ()
-  "Format heartbeat message with session status and user's heartbeat.org."
+  "Format heartbeat message with session status and user's heartbeat.org.
+The heartbeat file supports @file references (relative to the file's directory)
+which are expanded inline."
   (let* ((heartbeat-file (expand-file-name meta-agent-shell-heartbeat-file))
          (user-instructions (when (file-exists-p heartbeat-file)
-                              (with-temp-buffer
-                                (insert-file-contents heartbeat-file)
-                                (buffer-string))))
+                              (let ((raw (with-temp-buffer
+                                           (insert-file-contents heartbeat-file)
+                                           (buffer-string))))
+                                (meta-agent-shell--expand-file-refs
+                                 raw (file-name-directory heartbeat-file)))))
          (active-sessions (meta-agent-shell--active-buffers))
          (session-infos (mapcar #'meta-agent-shell--get-buffer-status active-sessions))
          (dispatcher-infos (meta-agent-shell-list-dispatchers))
