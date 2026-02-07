@@ -108,18 +108,15 @@ $$ (shell) → zsh → claude → node (ACP client)
 
 Each agent-shell buffer owns an ACP client process. Match the PID, find the buffer. So agents identify themselves without knowing their buffer name.
 
-** Task tracking
+** Notes for later
 
-Dispatchers can write tasks to =.tasks/current.org= in the project:
+Agents can leave timestamped notes for themselves or others:
 
-#+begin_src org
-** TODO Refactor auth middleware :@claude:
-   :PROPERTIES:
-   :ASSIGNED: Refactor
-   :END:
+#+begin_src bash
+note-for-later refactor "Edge case in parse_args needs handling"
 #+end_src
 
-Add =.tasks/= to your =org-agenda-files= and tasks show up in your agenda.
+Notes go to =.tasks/agent_<desc>.org= and persist across sessions. Add =.tasks/= to your =org-agenda-files= to see them in your agenda.
 
 * Workflow 2: Meta-Agent
 
