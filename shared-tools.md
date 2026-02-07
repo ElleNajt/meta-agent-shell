@@ -32,6 +32,14 @@
 
 **Always include the initial task** when spawning - saves a separate send call.
 
+## Notes
+
+| Command | Description |
+|---------|-------------|
+| `note-for-later desc "note"` | Append timestamped note to `.tasks/agent_<desc>.org` |
+
+Use your role as the desc (e.g., `refactor`, `tests`). Notes persist across sessions.
+
 ## Buffer Naming
 
 Buffer names follow the pattern `AgentName Agent @ projectname`:
