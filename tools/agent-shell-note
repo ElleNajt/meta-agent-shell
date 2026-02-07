@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # agent-shell-note - Append timestamped notes to .tasks/agent_<desc>.org
 #
 # Usage: agent-shell-note <desc> <note>

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # agent-shell-send-project - Send a message to an agent by project name
 # Usage: agent-shell-send-project "project-name" "message"
 

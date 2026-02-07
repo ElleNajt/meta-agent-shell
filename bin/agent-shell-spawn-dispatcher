@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # agent-shell-spawn-dispatcher - Create a dispatcher for a project
 # Usage: agent-shell-spawn-dispatcher "path"
 

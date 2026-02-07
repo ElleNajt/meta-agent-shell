@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # agent-shell-view - View recent output from an agent session
 # Usage: agent-shell-view "buffer-name" [lines]
 

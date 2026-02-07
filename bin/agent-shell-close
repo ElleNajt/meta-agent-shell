@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # agent-shell-close - Close an agent session
 # Usage: agent-shell-close "buffer-name"
 

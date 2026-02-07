@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # agent-shell-ask-project - Ask a question to an agent by project name
 # Usage: agent-shell-ask-project "project-name" "question"
 

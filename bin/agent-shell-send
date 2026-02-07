@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # agent-shell-send - Send a message to another agent
 # Usage: agent-shell-send "target-buffer" "message"
 #

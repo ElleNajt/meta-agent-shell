@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # agent-shell-search - Search agent sessions for a pattern
 #
 # Usage:

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # agent-shell-ask - Ask another agent a question (they'll reply back to you)
 # Usage: agent-shell-ask "target-buffer" "question"
 #
