@@ -187,7 +187,7 @@ Then have the dispatcher interrupt it:
 ```elisp
 (meta-agent-shell-send-to-session
   "Dispatcher Agent @ test-agent-project"
-  "Interrupt the SlowWorker agent - it's taking too long. Use: emacsclient --eval '(meta-agent-shell-interrupt-session \"SlowWorker Agent @ test-agent-project\")'"
+  "Interrupt the SlowWorker agent - it's taking too long. Use: agent-interrupt \"SlowWorker Agent @ test-agent-project\""
   nil nil)
 ```
 
