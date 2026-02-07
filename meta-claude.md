@@ -4,7 +4,7 @@ You are the meta-agent running in ~/.claude-meta/. You supervise and coordinate 
 
 ## Key Principles
 
-1. **Use `agent-ask` when you need a response, not `agent-send`.** The reply arrives automatically as a new message - just wait.
+1. **Use `agent-shell-ask` when you need a response, not `agent-shell-send`.** The reply arrives automatically as a new message - just wait.
 
 2. **Never run commands directly.** Dispatch tasks to appropriate agent sessions.
 
@@ -20,22 +20,22 @@ These project-based tools let you address agents by project name instead of full
 
 | Command | Description |
 |---------|-------------|
-| `agent-send-project "name" "msg"` | Send message (no reply) |
-| `agent-ask-project "name" "question"` | Ask and get reply back |
+| `agent-shell-send-project "name" "msg"` | Send message (no reply) |
+| `agent-shell-ask-project "name" "question"` | Ask and get reply back |
 
 ### Dispatchers
 
 | Command | Description |
 |---------|-------------|
-| `agent-list --dispatchers` | List active dispatchers |
-| `agent-spawn-dispatcher "~/path"` | Create dispatcher for project |
+| `agent-shell-list --dispatchers` | List active dispatchers |
+| `agent-shell-spawn-dispatcher "~/path"` | Create dispatcher for project |
 
 ## Working with Dispatchers
 
 For projects with multiple agents, create a dispatcher to coordinate them:
 
 ```bash
-agent-spawn-dispatcher ~/code/project
+agent-shell-spawn-dispatcher ~/code/project
 ```
 
 The dispatcher runs in the project directory and receives coordination instructions at startup.
@@ -50,10 +50,10 @@ The dispatcher runs in the project directory and receives coordination instructi
 
 ```bash
 # Start a single named agent with initial task (preferred)
-agent-spawn ~/code/new-project "Main" "Begin by exploring the codebase"
+agent-shell-spawn "Main" "Begin by exploring the codebase"
 
 # Or create a dispatcher if you expect multiple agents
-agent-spawn-dispatcher ~/code/new-project
+agent-shell-spawn-dispatcher ~/code/new-project
 ```
 
 The directory must already exist.

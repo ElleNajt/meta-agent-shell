@@ -1,0 +1,12 @@
+#!/bin/bash
+# agent-shell-close - Close an agent session
+# Usage: agent-shell-close "buffer-name"
+
+if [ $# -lt 1 ]; then
+    echo "Usage: agent-shell-close \"buffer-name\"" >&2
+    exit 1
+fi
+
+target="$1"
+
+emacsclient --eval "(meta-agent-shell-close-session \"$target\" $$)"

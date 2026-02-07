@@ -1,12 +1,12 @@
 #!/bin/bash
-# agent-ask - Ask another agent a question (they'll reply back to you)
-# Usage: agent-ask "target-buffer" "question"
+# agent-shell-ask - Ask another agent a question (they'll reply back to you)
+# Usage: agent-shell-ask "target-buffer" "question"
 #
 # Automatically detects sender from process hierarchy.
 # The target agent will receive instructions to reply back to you.
 
 if [ $# -lt 2 ]; then
-    echo "Usage: agent-ask \"target-buffer\" \"question\"" >&2
+    echo "Usage: agent-shell-ask \"target-buffer\" \"question\"" >&2
     exit 1
 fi
 

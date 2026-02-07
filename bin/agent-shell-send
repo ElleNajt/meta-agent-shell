@@ -1,11 +1,11 @@
 #!/bin/bash
-# agent-send - Send a message to another agent
-# Usage: agent-send "target-buffer" "message"
+# agent-shell-send - Send a message to another agent
+# Usage: agent-shell-send "target-buffer" "message"
 #
 # Automatically detects sender from process hierarchy.
 
 if [ $# -lt 2 ]; then
-    echo "Usage: agent-send \"target-buffer\" \"message\"" >&2
+    echo "Usage: agent-shell-send \"target-buffer\" \"message\"" >&2
     exit 1
 fi
 

@@ -15,7 +15,7 @@ Two levels of coordination:
 2. *Meta-Agent* - oversees all your projects, receives status heartbeats, monitors everything
 
 Plus:
-- *Inter-agent communication* via CLI tools (~agent-send~, ~agent-ask~, ~agent-search~)
+- *Inter-agent communication* via CLI tools (~agent-shell-send~, ~agent-shell-ask~, ~agent-shell-search~)
 - *Task tracking* in org files that show up in your Emacs agenda
 - *ICC logging* - all agent-to-agent messages logged as JSONL
 - *Big red button* - ~M-x meta-agent-shell-big-red-button~ stops everything
@@ -87,13 +87,13 @@ Jumps to the dispatcher for the current buffer's project. If none exists, offers
 Agents communicate with each other using these shell commands:
 
 #+begin_src bash
-agent-spawn "AgentName" "initial task"  # spawn a new named agent
-agent-send "buffer-name" "message"
-agent-ask "buffer-name" "question"      # reply routed back automatically
-agent-whoami                            # print own buffer name
-agent-search "pattern"                  # search all sessions for regexp
-agent-search "pattern" projectname      # search specific project
-note-for-later desc "note text"         # leave timestamped note in .tasks/
+agent-shell-spawn "AgentName" "initial task"  # spawn a new named agent
+agent-shell-send "buffer-name" "message"
+agent-shell-ask "buffer-name" "question"      # reply routed back automatically
+agent-shell-whoami                            # print own buffer name
+agent-shell-search "pattern"                  # search all sessions for regexp
+agent-shell-search "pattern" projectname      # search specific project
+agent-shell-note desc "note text"             # leave timestamped note in .tasks/
 #+end_src
 
 Agents are taught these tools via =agent-overview.md= (included in setup).
@@ -113,7 +113,7 @@ Each agent-shell buffer owns an ACP client process. Match the PID, find the buff
 Agents can leave timestamped notes for themselves or others:
 
 #+begin_src bash
-note-for-later refactor "Edge case in parse_args needs handling"
+agent-shell-note refactor "Edge case in parse_args needs handling"
 #+end_src
 
 Notes go to =.tasks/agent_<desc>.org= and persist across sessions. Add =.tasks/= to your =org-agenda-files= to see them in your agenda.

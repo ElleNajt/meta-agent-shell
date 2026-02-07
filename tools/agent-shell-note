@@ -1,0 +1,31 @@
+#!/bin/bash
+# agent-shell-note - Append timestamped notes to .tasks/agent_<desc>.org
+#
+# Usage: agent-shell-note <desc> <note>
+#
+# Example: agent-shell-note refactor "Need to handle edge case in parse_args"
+#          -> Appends to .tasks/agent_refactor.org
+
+set -e
+
+if [[ $# -lt 2 ]]; then
+    echo "Usage: agent-shell-note <desc> <note>"
+    echo "Example: agent-shell-note refactor \"Need to revisit error handling\""
+    exit 1
+fi
+
+desc="$1"
+shift
+note="$*"
+
+tasks_dir=".tasks"
+file="${tasks_dir}/agent_${desc}.org"
+timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+mkdir -p "$tasks_dir"
+
+echo "** $timestamp" >>"$file"
+echo "$note" >>"$file"
+echo "" >>"$file"
+
+echo "Note added to $file"

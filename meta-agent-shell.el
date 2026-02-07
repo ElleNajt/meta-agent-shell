@@ -627,7 +627,7 @@ Returns t on success, nil if not found."
 
 %s
 
-Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
+Reply with: agent-shell-send \"%s\" \"YOUR_ANSWER\""
                                          from question from)))
         (meta-agent-shell--log-icc from target-name question)
         (with-current-buffer target-buffer
@@ -654,7 +654,7 @@ Returns t on success, nil if not found."
 
 %s
 
-Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
+Reply with: agent-shell-send \"%s\" \"YOUR_ANSWER\""
                                           from question from)))
           (meta-agent-shell--log-icc from buffer-name question)
           (with-current-buffer buffer
@@ -795,24 +795,24 @@ Returns the number of sessions interrupted."
 ## Key Principles
 
 1. **Route work, don't do it yourself.** Find the right agent and delegate.
-2. **Use `agent-ask` when you need a response.** The reply arrives automatically.
+2. **Use `agent-shell-ask` when you need a response.** The reply arrives automatically.
 3. **Be available for conversation.** The user may want to discuss strategy or priorities.
 
 ## Your Tools
 
 Spawn a new named agent (preferred):
 ```bash
-agent-spawn \"AgentName\" \"initial task\"
+agent-shell-spawn \"AgentName\" \"initial task\"
 ```
 
 Send a message to an agent:
 ```bash
-agent-send \"BUFFER-NAME\" \"message\"
+agent-shell-send \"BUFFER-NAME\" \"message\"
 ```
 
 Ask an agent (they'll reply back):
 ```bash
-agent-ask \"BUFFER-NAME\" \"question\"
+agent-shell-ask \"BUFFER-NAME\" \"question\"
 ```
 
 List agents in this project:
@@ -827,7 +827,7 @@ Always use the list command to get exact buffer names - don't guess the format.
 
 1. Check which agents exist with the list command
 2. Route to existing agent, or spawn a new named agent for the task
-3. For status checks, use `agent-ask` to query agents"
+3. For status checks, use `agent-shell-ask` to query agents"
   "Instructions sent to dispatchers at startup.
 Contains %s placeholders for project-path.")
 
@@ -1042,7 +1042,7 @@ Returns t on success, nil if no dispatcher found."
 
 %s
 
-Reply with: agent-send \"%s\" \"YOUR_ANSWER\""
+Reply with: agent-shell-send \"%s\" \"YOUR_ANSWER\""
                                            from question from)))
           (meta-agent-shell--log-icc from dispatcher-name question)
           (with-current-buffer (cdr entry)

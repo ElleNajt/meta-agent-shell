@@ -1,9 +1,9 @@
 #!/bin/bash
-# agent-send-project - Send a message to an agent by project name
-# Usage: agent-send-project "project-name" "message"
+# agent-shell-send-project - Send a message to an agent by project name
+# Usage: agent-shell-send-project "project-name" "message"
 
 if [ $# -lt 2 ]; then
-    echo "Usage: agent-send-project \"project-name\" \"message\"" >&2
+    echo "Usage: agent-shell-send-project \"project-name\" \"message\"" >&2
     exit 1
 fi
 

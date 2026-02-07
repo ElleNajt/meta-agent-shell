@@ -1,12 +1,12 @@
 #!/bin/bash
-# agent-spawn - Spawn a new named agent
-# Usage: agent-spawn "AgentName" ["initial task"]
+# agent-shell-spawn - Spawn a new named agent
+# Usage: agent-shell-spawn "AgentName" ["initial task"]
 #
 # Spawns agent in the calling agent's project (via PID lookup).
 # Falls back to current directory if not called from an agent.
 
 if [ $# -lt 1 ]; then
-    echo "Usage: agent-spawn \"AgentName\" [\"initial task\"]" >&2
+    echo "Usage: agent-shell-spawn \"AgentName\" [\"initial task\"]" >&2
     exit 1
 fi
 

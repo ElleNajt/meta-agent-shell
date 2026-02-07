@@ -108,7 +108,7 @@ Then have AgentA message AgentB:
 ```elisp
 (meta-agent-shell-send-to-session
   "AgentA Agent @ test-agent-project"
-  "Send a message to AgentB asking what 2+2 is. Use: agent-send \"AgentB Agent @ test-agent-project\" \"What is 2+2?\""
+  "Send a message to AgentB asking what 2+2 is. Use: agent-shell-send \"AgentB Agent @ test-agent-project\" \"What is 2+2?\""
   nil nil)
 ```
 
@@ -131,7 +131,7 @@ Using the agents from Test 4, have the dispatcher ask AgentA a question:
 ```elisp
 (meta-agent-shell-send-to-session
   "Dispatcher Agent @ test-agent-project"
-  "Use agent-ask to ask AgentA what its name is. The command is: agent-ask \"AgentA Agent @ test-agent-project\" \"What is your name?\""
+  "Use agent-shell-ask to ask AgentA what its name is. The command is: agent-shell-ask \"AgentA Agent @ test-agent-project\" \"What is your name?\""
   nil nil)
 ```
 
@@ -147,7 +147,7 @@ Using the agents from Test 4, have the dispatcher ask AgentA a question:
 
 Should show a message from AgentA with its response.
 
-**Note:** `agent-spawn` returns the buffer name, so dispatchers should capture and use that value rather than guessing buffer names.
+**Note:** `agent-shell-spawn` returns the buffer name, so dispatchers should capture and use that value rather than guessing buffer names.
 
 ## Test 6: List Project Agents
 
@@ -187,7 +187,7 @@ Then have the dispatcher interrupt it:
 ```elisp
 (meta-agent-shell-send-to-session
   "Dispatcher Agent @ test-agent-project"
-  "Interrupt the SlowWorker agent - it's taking too long. Use: agent-interrupt \"SlowWorker Agent @ test-agent-project\""
+  "Interrupt the SlowWorker agent - it's taking too long. Use: agent-shell-interrupt \"SlowWorker Agent @ test-agent-project\""
   nil nil)
 ```
 
