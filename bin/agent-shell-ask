@@ -24,4 +24,18 @@ escaped_target=$(printf '%s' "$target" | sed 's/\\/\\\\/g; s/"/\\"/g')
 escaped_question=$(printf '%s' "$question" | sed 's/\\/\\\\/g; s/"/\\"/g')
 escaped_me=$(printf '%s' "$me" | sed 's/\\/\\\\/g; s/"/\\"/g')
 
-emacsclient --eval "(meta-agent-shell-ask-session \"$escaped_target\" \"$escaped_question\" \"$escaped_me\")"
+# Send the question and check result
+result=$(emacsclient --eval "(meta-agent-shell-ask-session \"$escaped_target\" \"$escaped_question\" \"$escaped_me\")" 2>&1)
+
+# Check for errors (emacsclient error or nil return)
+if echo "$result" | grep -q "^error\|^Lisp error"; then
+    echo "ERROR: $result" >&2
+    exit 1
+fi
+
+if [ "$result" = "nil" ]; then
+    echo "ERROR: Failed to ask question - buffer '$target' not found or not an agent-shell buffer" >&2
+    exit 1
+fi
+
+echo "Question sent to $target"
