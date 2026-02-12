@@ -306,7 +306,10 @@ Only saves if BUFFER is an agent-shell buffer (not meta or dispatcher)."
     (with-current-buffer buffer
       (let* ((project-path (meta-agent-shell--get-project-path))
              (project-name (file-name-nondirectory (directory-file-name project-path)))
-             (busy (and (fboundp 'shell-maker-busy) (shell-maker-busy)))
+             (busy (and (boundp 'shell-maker-config)
+                        shell-maker-config
+                        (fboundp 'shell-maker-busy)
+                        (shell-maker-busy)))
              (mode-id (and (boundp 'agent-shell--state)
                            (map-nested-elt agent-shell--state '(:session :mode-id)))))
         (list :buffer (buffer-name buffer)
@@ -713,12 +716,14 @@ Returns the buffer name of the new session, or nil if folder doesn't exist."
       nil)))
 
 ;;;###autoload
-(defun meta-agent-shell-start-named-agent (folder name &optional initial-message auto-allow)
+(defun meta-agent-shell-start-named-agent (folder name &optional initial-message auto-allow spawner-buffer)
   "Start a new named agent-shell session in FOLDER with NAME.
 The buffer will be named \"(ProjectName)-NAME\".
 If INITIAL-MESSAGE is provided, send it to the agent after starting.
 If AUTO-ALLOW is non-nil (or `meta-agent-shell-restrict-targets' is t),
 automatically add the new buffer to the allowed targets list.
+If SPAWNER-BUFFER is provided, select its window before running hooks
+so that window splits happen relative to the spawner, not the current window.
 Returns the buffer name of the new session, or nil if folder doesn't exist.
 
 Note: `meta-agent-shell-start-function' must:
@@ -729,6 +734,31 @@ Note: `meta-agent-shell-start-function' must:
   (let ((dir (expand-file-name folder)))
     (if (file-directory-p dir)
         (progn
+          ;; Select spawner's window if provided, so hooks split relative to spawner
+          (when spawner-buffer
+            (let* ((buf (get-buffer spawner-buffer))
+                   (spawner-win (when buf (get-buffer-window buf t))))
+              (if spawner-win
+                  ;; Spawner is visible - select its window
+                  (progn
+                    (select-frame-set-input-focus (window-frame spawner-win))
+                    (select-window spawner-win))
+                ;; Spawner not visible - find a frame showing same-project agents
+                (when buf
+                  (let* ((spawner-project (buffer-local-value 'default-directory buf))
+                         (target-frame
+                          (cl-loop for frame in (frame-list)
+                                   when (cl-some
+                                         (lambda (win)
+                                           (let ((win-buf (window-buffer win)))
+                                             (and (memq win-buf (agent-shell-buffers))
+                                                  (string-prefix-p
+                                                   spawner-project
+                                                   (buffer-local-value 'default-directory win-buf)))))
+                                         (window-list frame))
+                                   return frame)))
+                    (when target-frame
+                      (select-frame-set-input-focus target-frame)))))))
           ;; Run before-spawn hook FIRST (e.g., for window layout setup)
           ;; This may change selected window/buffer, so run before binding default-directory
           (run-hooks 'meta-agent-shell-before-spawn-hook)
@@ -807,7 +837,8 @@ Returns the number of sessions interrupted."
   (interactive)
   (let ((count 0))
     (dolist (buf (agent-shell-buffers))
-      (when (buffer-live-p buf)
+      (when (and (buffer-live-p buf)
+                 (get-buffer-process buf))
         (with-current-buffer buf
           (agent-shell-interrupt t))
         (cl-incf count)))
@@ -879,7 +910,10 @@ Contains %s placeholders for project-path.")
   "Start a dispatcher for PROJECT-PATH.
 The dispatcher runs in PROJECT-PATH itself (same as other agents).
 Returns the dispatcher buffer name, or nil if already exists.
-When called interactively, uses the current buffer's project."
+When called interactively, uses the current buffer's project.
+
+Dispatcher instructions are appended to the system prompt via session-meta,
+so they persist across context compaction."
   (interactive (list (meta-agent-shell--get-project-path)))
   (let* ((project-path (expand-file-name project-path))
          (project-name (file-name-nondirectory (directory-file-name project-path)))
@@ -898,33 +932,28 @@ When called interactively, uses the current buffer's project."
              (default-directory project-path)
              (instructions (format meta-agent-shell--dispatcher-instructions
                                    project-path))
+             (session-meta `((systemPrompt . ((append . ,instructions)))))
              (buf nil))
-        ;; Pass buffer-name as second arg to start function
-        ;; Workaround: agent-shell may fail if a buffer with this name was
-        ;; recently killed (async cleanup race). Retry once after brief delay.
+        ;; Use the configured start function to create the buffer
         (condition-case err
             (funcall meta-agent-shell-start-function
                      (car meta-agent-shell-start-function-args)
                      dispatcher-buffer-name)
           (error
            (message "Dispatcher start failed (%s), retrying after cleanup delay..." err)
-           (sit-for 0.5)  ; allow pending events to process
+           (sit-for 0.5)
            (funcall meta-agent-shell-start-function
                     (car meta-agent-shell-start-function-args)
                     dispatcher-buffer-name)))
         (setq buf (current-buffer))
+        ;; Set session-meta in the buffer's state BEFORE the first prompt
+        ;; This will be picked up by agent-shell--initiate-session
+        (with-current-buffer buf
+          (when (boundp 'agent-shell--state)
+            (map-put! agent-shell--state :session-meta session-meta)))
         ;; Register dispatcher
         (push (cons project-path buf) meta-agent-shell--dispatchers)
-        ;; Send instructions after a short delay for initialization
-        (run-at-time 2 nil
-                     (lambda (buffer msg)
-                       (when (buffer-live-p buffer)
-                         (with-current-buffer buffer
-                           (condition-case err
-                               (shell-maker-submit :input msg)
-                             (error (message "Failed to send dispatcher instructions: %s" err))))))
-                     buf instructions)
-        (message "Dispatcher started for %s" project-name)
+        (message "Dispatcher started for %s (instructions in system prompt)" project-name)
         (buffer-name buf)))))
 
 ;;;###autoload
