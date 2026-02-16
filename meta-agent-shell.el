@@ -950,7 +950,8 @@ so they persist across context compaction."
         ;; This will be picked up by agent-shell--initiate-session
         (with-current-buffer buf
           (when (boundp 'agent-shell--state)
-            (map-put! agent-shell--state :session-meta session-meta)))
+            (setq agent-shell--state
+                  (map-insert agent-shell--state :session-meta session-meta))))
         ;; Register dispatcher
         (push (cons project-path buf) meta-agent-shell--dispatchers)
         (message "Dispatcher started for %s (instructions in system prompt)" project-name)

@@ -1,18 +1,35 @@
 #!/usr/bin/env bash
 # agent-shell-spawn - Spawn a new named agent
 # Usage: agent-shell-spawn "AgentName" ["initial task"]
+#        agent-shell-spawn "AgentName" /path/to/project ["initial task"]
 #
 # Spawns agent in the calling agent's project (via PID lookup).
+# If a path is provided as second argument, spawns there instead.
 # Falls back to current directory if not called from an agent.
 # Includes spawner identity so new agent knows who to report back to.
 
 if [ $# -lt 1 ]; then
     echo "Usage: agent-shell-spawn \"AgentName\" [\"initial task\"]" >&2
+    echo "       agent-shell-spawn \"AgentName\" /path/to/project [\"initial task\"]" >&2
     exit 1
 fi
 
 name="$1"
-task="${2:-}"
+task=""
+explicit_path=""
+
+# Check if second argument is a path (starts with / or ~)
+if [ $# -ge 2 ]; then
+    arg2="$2"
+    # Expand ~ to home directory for the check
+    expanded_arg2="${arg2/#\~/$HOME}"
+    if [ -d "$expanded_arg2" ]; then
+        explicit_path="$expanded_arg2"
+        task="${3:-}"
+    else
+        task="$2"
+    fi
+fi
 
 # Get spawner identity
 spawner=$(emacsclient --eval "(meta-agent-shell-whoami $$)" 2>/dev/null | tr -d '"')
@@ -20,10 +37,14 @@ if [ "$spawner" = "nil" ] || [ -z "$spawner" ]; then
     spawner="unknown"
 fi
 
-# Get project path from calling agent's buffer, fall back to pwd
-project_path=$(emacsclient --eval "(meta-agent-shell-project-path $$)" 2>/dev/null | tr -d '"')
-if [ "$project_path" = "nil" ] || [ -z "$project_path" ]; then
-    project_path="$(pwd)"
+# Use explicit path if provided, otherwise get from calling agent's buffer
+if [ -n "$explicit_path" ]; then
+    project_path="$explicit_path"
+else
+    project_path=$(emacsclient --eval "(meta-agent-shell-project-path $$)" 2>/dev/null | tr -d '"')
+    if [ "$project_path" = "nil" ] || [ -z "$project_path" ]; then
+        project_path="$(pwd)"
+    fi
 fi
 
 # Escape for elisp: backslashes first, then quotes
@@ -35,12 +56,15 @@ escaped_path=$(escape_elisp "$project_path")
 escaped_name=$(escape_elisp "$name")
 
 # Format initial message with spawner info
+escaped_spawner=$(escape_elisp "$spawner")
+
 if [ -n "$task" ]; then
     initial_message="Spawned by: $spawner
 
 Task: $task"
     escaped_message=$(escape_elisp "$initial_message")
-    emacsclient --eval "(meta-agent-shell-start-named-agent \"$escaped_path\" \"$escaped_name\" \"$escaped_message\")"
+    # Pass spawner buffer as 5th arg so window splits happen relative to spawner
+    emacsclient --eval "(meta-agent-shell-start-named-agent \"$escaped_path\" \"$escaped_name\" \"$escaped_message\" nil \"$escaped_spawner\")"
 else
-    emacsclient --eval "(meta-agent-shell-start-named-agent \"$escaped_path\" \"$escaped_name\")"
+    emacsclient --eval "(meta-agent-shell-start-named-agent \"$escaped_path\" \"$escaped_name\" nil nil \"$escaped_spawner\")"
 fi

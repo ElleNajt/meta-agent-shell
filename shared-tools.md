@@ -27,7 +27,6 @@
 | Command | Description |
 |---------|-------------|
 | `agent-shell-spawn "Name" "task"` | Start named agent with initial task |
-| `agent-shell-close "buffer"` | Close/kill a session |
 | `agent-shell-interrupt "buffer"` | Stop a runaway agent |
 
 **Always include the initial task** when spawning - saves a separate send call.

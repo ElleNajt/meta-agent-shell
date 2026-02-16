@@ -40,9 +40,6 @@ agent-shell-list
 # View recent output from a session
 agent-shell-view "target-buffer" 50
 
-# Close a session
-agent-shell-close "target-buffer"
-
 # Interrupt a runaway agent
 agent-shell-interrupt "target-buffer"
 ```
