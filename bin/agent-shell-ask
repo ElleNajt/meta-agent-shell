@@ -5,7 +5,7 @@
 # Automatically detects sender from process hierarchy.
 # The target agent will receive instructions to reply back to you.
 
-if [ $# -lt 2 ]; then
+if [ $# -lt 2 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: agent-shell-ask \"target-buffer\" \"question\"" >&2
     exit 1
 fi

@@ -8,7 +8,7 @@
 # Falls back to current directory if not called from an agent.
 # Includes spawner identity so new agent knows who to report back to.
 
-if [ $# -lt 1 ]; then
+if [ $# -lt 1 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: agent-shell-spawn \"AgentName\" [\"initial task\"]" >&2
     echo "       agent-shell-spawn \"AgentName\" /path/to/project [\"initial task\"]" >&2
     exit 1

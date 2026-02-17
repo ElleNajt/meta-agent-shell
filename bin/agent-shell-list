@@ -2,6 +2,11 @@
 # agent-shell-list - List active agent sessions
 # Usage: agent-shell-list [--dispatchers]
 
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "Usage: agent-shell-list [--dispatchers]" >&2
+    exit 1
+fi
+
 if [ "$1" = "--dispatchers" ]; then
     emacsclient --eval "(meta-agent-shell-list-dispatchers)"
 else

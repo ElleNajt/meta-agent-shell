@@ -2,7 +2,7 @@
 # agent-shell-spawn-dispatcher - Create a dispatcher for a project
 # Usage: agent-shell-spawn-dispatcher "path"
 
-if [ $# -lt 1 ]; then
+if [ $# -lt 1 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: agent-shell-spawn-dispatcher \"path\"" >&2
     exit 1
 fi

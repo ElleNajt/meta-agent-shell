@@ -2,7 +2,7 @@
 # agent-shell-send-project - Send a message to an agent by project name
 # Usage: agent-shell-send-project "project-name" "message"
 
-if [ $# -lt 2 ]; then
+if [ $# -lt 2 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: agent-shell-send-project \"project-name\" \"message\"" >&2
     exit 1
 fi

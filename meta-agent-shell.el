@@ -874,17 +874,29 @@ Ask an agent (they'll reply back):
 agent-shell-ask \"BUFFER-NAME\" \"question\"
 ```
 
-List agents in this project:
+List agents:
 ```bash
-emacsclient --eval '(meta-agent-shell-get-project-agents \"%s\")'
+agent-shell-list
+```
+
+View recent output from an agent:
+```bash
+agent-shell-view \"BUFFER-NAME\" 50
+```
+
+Interrupt a runaway agent:
+```bash
+agent-shell-interrupt \"BUFFER-NAME\"
 ```
 
 **Buffer names** follow the format `AgentName Agent @ projectname` (e.g., `Worker Agent @ myproject`).
-Always use the list command to get exact buffer names - don't guess the format.
+Always use `agent-shell-list` to get exact buffer names - don't guess the format.
+
+**Important:** All `agent-shell-*` commands are shell commands. Run them directly, not via `emacsclient --eval`.
 
 ## Workflow
 
-1. Check which agents exist with the list command
+1. Check which agents exist with `agent-shell-list`
 2. Route to existing agent, or spawn a new named agent for the task
 3. For status checks, use `agent-shell-ask` to query agents
 
@@ -903,8 +915,7 @@ When spawning agents, they should:
 - Complete their assigned task
 - If appropriate, commit changes with a descriptive message before reporting back
 - Report completion to their spawner"
-  "Instructions sent to dispatchers at startup.
-Contains %s placeholders for project-path.")
+  "Instructions sent to dispatchers at startup.")
 
 (defun meta-agent-shell-start-dispatcher (project-path)
   "Start a dispatcher for PROJECT-PATH.
@@ -930,8 +941,7 @@ so they persist across context compaction."
       ;; Create dispatcher in the project directory itself
       (let* ((dispatcher-buffer-name "Dispatcher")
              (default-directory project-path)
-             (instructions (format meta-agent-shell--dispatcher-instructions
-                                   project-path))
+             (instructions meta-agent-shell--dispatcher-instructions)
              (session-meta `((systemPrompt . ((append . ,instructions)))))
              (buf nil))
         ;; Use the configured start function to create the buffer

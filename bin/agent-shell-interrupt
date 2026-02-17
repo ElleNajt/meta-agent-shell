@@ -2,7 +2,7 @@
 # agent-shell-interrupt - Interrupt a running agent
 # Usage: agent-shell-interrupt "buffer-name"
 
-if [ $# -lt 1 ]; then
+if [ $# -lt 1 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: agent-shell-interrupt \"buffer-name\"" >&2
     exit 1
 fi

@@ -5,7 +5,7 @@
 # Creates/appends to .tasks/agent_<description>.org with timestamped entries.
 # The description becomes the filename slug (lowercase, spaces to underscores).
 
-if [ $# -lt 2 ]; then
+if [ $# -lt 2 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: note-for-later 'description' 'note content'" >&2
     exit 1
 fi
@@ -28,13 +28,13 @@ timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Create file with header if it doesn't exist
 if [ ! -f "$file" ]; then
-    echo "#+TITLE: Notes: $description" > "$file"
-    echo "" >> "$file"
+    echo "#+TITLE: Notes: $description" >"$file"
+    echo "" >>"$file"
 fi
 
 # Append timestamped entry
-echo "* [$timestamp]" >> "$file"
-echo "$content" >> "$file"
-echo "" >> "$file"
+echo "* [$timestamp]" >>"$file"
+echo "$content" >>"$file"
+echo "" >>"$file"
 
 echo "Note added to $file"

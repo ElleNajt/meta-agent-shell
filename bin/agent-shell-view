@@ -2,7 +2,7 @@
 # agent-shell-view - View recent output from an agent session
 # Usage: agent-shell-view "buffer-name" [lines]
 
-if [ $# -lt 1 ]; then
+if [ $# -lt 1 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: agent-shell-view \"buffer-name\" [lines]" >&2
     exit 1
 fi
