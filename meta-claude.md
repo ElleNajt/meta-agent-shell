@@ -46,17 +46,21 @@ The dispatcher runs in the project directory and receives coordination instructi
 
 **When to talk directly to agents:** For simple cases or when you know exactly which agent to address.
 
-## Starting New Projects
+## Starting New Agents
+
+**You must always specify the project path** when spawning agents, because you run in ~/.claude-meta/ and agents would otherwise start there.
 
 ```bash
-# Start a single named agent with initial task (preferred)
-agent-shell-spawn "Main" "Begin by exploring the codebase"
+# Always use the 3-argument form with the project path
+agent-shell-spawn "AgentName" /path/to/project "initial task"
 
-# Or create a dispatcher if you expect multiple agents
-agent-shell-spawn-dispatcher ~/code/new-project
+# Examples
+agent-shell-spawn "Main" ~/code/myproject "Begin by exploring the codebase"
+agent-shell-spawn "Tests" ~/code/myproject "Run the test suite and report results"
+
+# For multi-agent projects, use a dispatcher instead
+agent-shell-spawn-dispatcher ~/code/myproject
 ```
-
-The directory must already exist.
 
 **Always include an initial message** when spawning agents - this avoids needing a separate send call.
 
