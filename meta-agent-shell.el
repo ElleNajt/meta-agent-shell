@@ -80,9 +80,9 @@ These are passed as the first argument (e.g., prefix arg)."
   :group 'meta-agent-shell)
 
 (defcustom meta-agent-shell-config-file "~/.meta-agent-shell/config.org"
-  "Path to config file for the meta-agent system prompt.
+  "Path to config file with context for the meta-agent.
 Supports @file references (like heartbeat.org) which are expanded inline.
-Contents are included in the meta-agent's system prompt at session start."
+Contents are included in each heartbeat message, so changes are picked up live."
   :type 'string
   :group 'meta-agent-shell)
 
@@ -436,6 +436,13 @@ which are expanded inline."
         (insert user-instructions)
         (unless (string-suffix-p "\n" user-instructions)
           (insert "\n")))
+      ;; Config file context (refreshed each heartbeat)
+      (let ((config-content (meta-agent-shell--load-config)))
+        (when config-content
+          (insert "\n** Context\n\n")
+          (insert config-content)
+          (unless (string-suffix-p "\n" config-content)
+            (insert "\n"))))
       (buffer-string))))
 
 (defun meta-agent-shell--buffer-alive-p ()
@@ -473,11 +480,7 @@ Config from `meta-agent-shell-config-file' is included."
     ;; Start a new meta session
     (let* ((default-directory (expand-file-name meta-agent-shell-directory))
            (base-instructions (meta-agent-shell--meta-instructions))
-           (config-content (meta-agent-shell--load-config))
-           (full-instructions (if config-content
-                                  (concat base-instructions "\n\n## User Context\n\n" config-content)
-                                base-instructions))
-           (session-meta `((systemPrompt . ((append . ,full-instructions))))))
+           (session-meta `((systemPrompt . ((append . ,base-instructions))))))
       ;; Ensure directory exists
       (make-directory default-directory t)
       (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)

@@ -178,7 +178,7 @@ Edit =~/.meta-agent-shell/config.org= to give the meta-agent persistent context.
 @/Users/you/notes/team-conventions.org
 #+end_example
 
-Contents are expanded and injected into the system prompt via session-meta at session start (survives compaction).
+Contents are expanded and included in each heartbeat message, so the meta-agent always sees the latest version.
 
 * Logging
 
