@@ -168,6 +168,18 @@ Each heartbeat includes:
 - ~M-x meta-agent-shell-heartbeat-stop~ - stop the timer
 - ~M-x meta-agent-shell-heartbeat-send-now~ - send one immediately
 
+** Config File
+
+Edit =~/.meta-agent-shell/config.org= to give the meta-agent persistent context. Use =@file= references (same syntax as =heartbeat.org=) to pull in external files:
+
+#+begin_example
+# ~/.meta-agent-shell/config.org
+@/Users/you/notes/priorities.org
+@/Users/you/notes/team-conventions.org
+#+end_example
+
+Contents are expanded and injected into the system prompt via session-meta at session start (survives compaction).
+
 * Logging
 
 All inter-agent communication logged to =~/.meta-agent-shell/logs/YYYY-MM-DD-icc.jsonl=:

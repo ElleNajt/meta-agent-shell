@@ -79,6 +79,13 @@ These are passed as the first argument (e.g., prefix arg)."
   :type 'list
   :group 'meta-agent-shell)
 
+(defcustom meta-agent-shell-config-file "~/.meta-agent-shell/config.org"
+  "Path to config file for the meta-agent system prompt.
+Supports @file references (like heartbeat.org) which are expanded inline.
+Contents are included in the meta-agent's system prompt at session start."
+  :type 'string
+  :group 'meta-agent-shell)
+
 (defcustom meta-agent-shell-log-directory "~/.meta-agent-shell/logs/"
   "Directory for ICC (inter-Claude communication) logs."
   :type 'string
@@ -351,6 +358,31 @@ file's contents. Missing files are silently skipped."
         (forward-line 1)))
     (buffer-string)))
 
+(defun meta-agent-shell--load-config ()
+  "Load config from `meta-agent-shell-config-file'.
+Expands @file references relative to the config file's directory.
+Returns expanded contents as a string, or nil if file doesn't exist."
+  (let ((config-file (expand-file-name meta-agent-shell-config-file)))
+    (when (file-exists-p config-file)
+      (let ((raw (with-temp-buffer
+                   (insert-file-contents config-file)
+                   (buffer-string))))
+        (meta-agent-shell--expand-file-refs
+         raw (file-name-directory config-file))))))
+
+(defun meta-agent-shell--meta-instructions ()
+  "Load meta-agent instructions from meta-claude.md in the package directory.
+Expands @file references relative to the package directory."
+  (let* ((lib (or load-file-name buffer-file-name
+                  (locate-library "meta-agent-shell.el")))
+         (pkg-dir (file-name-directory (file-truename lib)))
+         (instructions-file (expand-file-name "meta-claude.md" pkg-dir)))
+    (when (file-exists-p instructions-file)
+      (let ((raw (with-temp-buffer
+                   (insert-file-contents instructions-file)
+                   (buffer-string))))
+        (meta-agent-shell--expand-file-refs raw pkg-dir)))))
+
 (defun meta-agent-shell--format-heartbeat ()
   "Format heartbeat message with session status and user's heartbeat.org.
 The heartbeat file supports @file references (relative to the file's directory)
@@ -432,19 +464,29 @@ Only sends if session is alive and cooldown has elapsed."
 (defun meta-agent-shell-start ()
   "Start or switch to the meta-agent session.
 Only one meta session can be active at a time.
-The session mode is determined by your agent-shell configuration
-\(consider using directory-based mode settings for safety)."
+Instructions are injected via session-meta (survives compaction).
+Config from `meta-agent-shell-config-file' is included."
   (interactive)
   (if (meta-agent-shell--buffer-alive-p)
       ;; Already have a meta session, switch to it
       (pop-to-buffer meta-agent-shell--buffer)
     ;; Start a new meta session
-    (let ((default-directory (expand-file-name meta-agent-shell-directory)))
+    (let* ((default-directory (expand-file-name meta-agent-shell-directory))
+           (base-instructions (meta-agent-shell--meta-instructions))
+           (config-content (meta-agent-shell--load-config))
+           (full-instructions (if config-content
+                                  (concat base-instructions "\n\n## User Context\n\n" config-content)
+                                base-instructions))
+           (session-meta `((systemPrompt . ((append . ,full-instructions))))))
       ;; Ensure directory exists
       (make-directory default-directory t)
       (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
       ;; Track this as the meta buffer
       (setq meta-agent-shell--buffer (current-buffer))
+      ;; Inject instructions via session-meta (like dispatchers)
+      (when (boundp 'agent-shell--state)
+        (setq agent-shell--state
+              (map-insert agent-shell--state :session-meta session-meta)))
       (message "Meta-agent session started in %s" default-directory))))
 
 ;;;###autoload
@@ -859,55 +901,60 @@ Returns the number of sessions interrupted."
 
 ## Your Tools
 
-Spawn a new named agent (preferred):
-```bash
-agent-shell-spawn \"AgentName\" \"initial task\"
-```
+These are **shell commands**. Execute them directly in your shell (via the Bash tool). Do NOT send them as messages to yourself or other agents.
 
-Send a message to an agent:
+### Spawn a new agent
+```bash
+agent-shell-spawn \"AgentName\" \"initial task description\"
+```
+This creates a new agent session and sends it the initial task. The agent name should be short and descriptive (e.g., \"WildGuard\", \"Tests\", \"Refactor\").
+
+### Send a message to an existing agent
 ```bash
 agent-shell-send \"BUFFER-NAME\" \"message\"
 ```
 
-Ask an agent (they'll reply back):
+### Ask an agent a question (they reply back to you automatically)
 ```bash
 agent-shell-ask \"BUFFER-NAME\" \"question\"
 ```
 
-List agents:
+### List active agents
 ```bash
 agent-shell-list
 ```
 
-View recent output from an agent:
+### View recent output from an agent
 ```bash
 agent-shell-view \"BUFFER-NAME\" 50
 ```
 
-Interrupt a runaway agent:
+### Interrupt a runaway agent
 ```bash
 agent-shell-interrupt \"BUFFER-NAME\"
 ```
 
-**Buffer names** follow the format `AgentName Agent @ projectname` (e.g., `Worker Agent @ myproject`).
-Always use `agent-shell-list` to get exact buffer names - don't guess the format.
+## Common Mistakes
 
-**Important:** All `agent-shell-*` commands are shell commands. Run them directly, not via `emacsclient --eval`.
+- **WRONG:** `agent-shell-send \"Dispatcher\" \"spawn AgentName ...\"` — this sends a text message, it does NOT spawn anything
+- **RIGHT:** `agent-shell-spawn \"AgentName\" \"task description\"` — this actually creates a new agent
+
+**Buffer names** follow the format `AgentName Agent @ projectname` (e.g., `Worker Agent @ myproject`).
+Use `agent-shell-list` to get exact buffer names before sending messages.
 
 ## Workflow
 
 1. Check which agents exist with `agent-shell-list`
-2. Route to existing agent, or spawn a new named agent for the task
+2. Route to existing agent, or spawn a new named agent with `agent-shell-spawn`
 3. For status checks, use `agent-shell-ask` to query agents
 
 ## Emergency Stop
 
-If agents are stuck or going in the wrong direction, you can interrupt all of them:
 ```bash
 emacsclient --eval '(meta-agent-shell-big-red-button)'
 ```
 
-This interrupts (not kills) all agent sessions, including yourself. Use it when you need everyone to stop and regroup.
+Interrupts (not kills) all agent sessions, including yourself.
 
 ## Agent Guidelines
 

@@ -9,16 +9,26 @@ echo "Setting up meta-agent-shell..."
 mkdir -p ~/.claude-meta
 echo "Created ~/.claude-meta/"
 
-# Link meta-agent CLAUDE.md
+# Remove old CLAUDE.md symlink (instructions now injected via session-meta)
 if [ -L ~/.claude-meta/CLAUDE.md ]; then
     rm ~/.claude-meta/CLAUDE.md
+    echo "Removed old CLAUDE.md symlink (no longer needed)"
 fi
-ln -s "$SCRIPT_DIR/meta-claude.md" ~/.claude-meta/CLAUDE.md
-echo "Linked meta-agent CLAUDE.md"
 
 # Create logs directory
 mkdir -p ~/.meta-agent-shell/logs
 echo "Created ~/.meta-agent-shell/logs/"
+
+# Create config file if it doesn't exist
+if [ ! -f ~/.meta-agent-shell/config.org ]; then
+    cat >~/.meta-agent-shell/config.org <<'CONF'
+# Meta-agent config - add @file references to include in the system prompt
+# Example:
+# @/absolute/path/to/priorities.org
+# @relative/path/from/here.org
+CONF
+    echo "Created ~/.meta-agent-shell/config.org"
+fi
 
 echo ""
 echo "Done! Now:"
@@ -31,3 +41,7 @@ echo "   @$SCRIPT_DIR/agent-overview.md"
 echo ""
 echo "3. Add to your Emacs config:"
 echo "   (use-package meta-agent-shell :after agent-shell)"
+echo ""
+echo "4. Edit ~/.meta-agent-shell/config.org to add @file references"
+echo "   for context the meta-agent should have (e.g. priorities)."
+echo "   Example: @/home/you/notes/priorities.org"
