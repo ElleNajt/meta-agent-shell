@@ -939,8 +939,11 @@ agent-shell-interrupt \"BUFFER-NAME\"
 
 ## Common Mistakes
 
+- **WRONG:** `emacsclient --eval '(some-elisp-function ...)'` — do NOT use emacsclient to spawn or manage agents
 - **WRONG:** `agent-shell-send \"Dispatcher\" \"spawn AgentName ...\"` — this sends a text message, it does NOT spawn anything
 - **RIGHT:** `agent-shell-spawn \"AgentName\" \"task description\"` — this actually creates a new agent
+
+All agent management is done through `agent-shell-*` CLI commands, never through emacsclient.
 
 **Buffer names** follow the format `AgentName Agent @ projectname` (e.g., `Worker Agent @ myproject`).
 Use `agent-shell-list` to get exact buffer names before sending messages.
@@ -1012,6 +1015,15 @@ so they persist across context compaction."
           (when (boundp 'agent-shell--state)
             (setq agent-shell--state
                   (map-insert agent-shell--state :session-meta session-meta))))
+        ;; Send initial message to keep the session alive
+        (with-current-buffer buf
+          (run-at-time 0.5 nil
+                       (lambda (b)
+                         (when (buffer-live-p b)
+                           (with-current-buffer b
+                             (shell-maker-submit
+                              :input "You are the dispatcher for this project. Wait for instructions."))))
+                       buf))
         ;; Register dispatcher
         (push (cons project-path buf) meta-agent-shell--dispatchers)
         (message "Dispatcher started for %s (instructions in system prompt)" project-name)
