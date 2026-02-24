@@ -468,10 +468,19 @@ Only sends if session is alive and cooldown has elapsed."
 ;;; Interactive commands
 
 ;;;###autoload
+(defun meta-agent-shell--make-session-meta-decorator (session-meta)
+  "Return an outgoing-request-decorator that injects SESSION-META on session/new."
+  (lambda (request)
+    (when (equal (map-elt request :method) "session/new")
+      (map-put! request :params
+                (cons (cons '_meta session-meta)
+                      (map-elt request :params))))
+    request))
+
 (defun meta-agent-shell-start ()
   "Start or switch to the meta-agent session.
 Only one meta session can be active at a time.
-Instructions are injected via session-meta (survives compaction).
+Instructions are injected via outgoing-request-decorator.
 Config from `meta-agent-shell-config-file' is included."
   (interactive)
   (if (meta-agent-shell--buffer-alive-p)
@@ -480,16 +489,17 @@ Config from `meta-agent-shell-config-file' is included."
     ;; Start a new meta session
     (let* ((default-directory (expand-file-name meta-agent-shell-directory))
            (base-instructions (meta-agent-shell--meta-instructions))
-           (session-meta `((systemPrompt . ((append . ,base-instructions))))))
+           (session-meta `((systemPrompt . ((append . ,base-instructions)))))
+           (decorator (meta-agent-shell--make-session-meta-decorator session-meta)))
       ;; Ensure directory exists
       (make-directory default-directory t)
       (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
       ;; Track this as the meta buffer
       (setq meta-agent-shell--buffer (current-buffer))
-      ;; Inject instructions via session-meta (like dispatchers)
+      ;; Inject instructions via outgoing-request-decorator
       (when (boundp 'agent-shell--state)
         (setq agent-shell--state
-              (map-insert agent-shell--state :session-meta session-meta)))
+              (map-insert agent-shell--state :outgoing-request-decorator decorator)))
       (message "Meta-agent session started in %s" default-directory))))
 
 ;;;###autoload
@@ -976,8 +986,8 @@ The dispatcher runs in PROJECT-PATH itself (same as other agents).
 Returns the dispatcher buffer name, or nil if already exists.
 When called interactively, uses the current buffer's project.
 
-Dispatcher instructions are appended to the system prompt via session-meta,
-so they persist across context compaction."
+Dispatcher instructions are appended to the system prompt via
+outgoing-request-decorator, so they persist across context compaction."
   (interactive (list (meta-agent-shell--get-project-path)))
   (let* ((project-path (expand-file-name project-path))
          (project-name (file-name-nondirectory (directory-file-name project-path)))
@@ -996,6 +1006,7 @@ so they persist across context compaction."
              (default-directory project-path)
              (instructions meta-agent-shell--dispatcher-instructions)
              (session-meta `((systemPrompt . ((append . ,instructions)))))
+             (decorator (meta-agent-shell--make-session-meta-decorator session-meta))
              (buf nil))
         ;; Use the configured start function to create the buffer
         (condition-case err
@@ -1009,12 +1020,12 @@ so they persist across context compaction."
                     (car meta-agent-shell-start-function-args)
                     dispatcher-buffer-name)))
         (setq buf (current-buffer))
-        ;; Set session-meta in the buffer's state BEFORE the first prompt
-        ;; This will be picked up by agent-shell--initiate-session
+        ;; Set outgoing-request-decorator BEFORE the first prompt
+        ;; This injects _meta with systemPrompt on session/new
         (with-current-buffer buf
           (when (boundp 'agent-shell--state)
             (setq agent-shell--state
-                  (map-insert agent-shell--state :session-meta session-meta))))
+                  (map-insert agent-shell--state :outgoing-request-decorator decorator))))
         ;; Send initial message to keep the session alive
         (with-current-buffer buf
           (run-at-time 0.5 nil
