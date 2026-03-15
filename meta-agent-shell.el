@@ -491,12 +491,28 @@ Expands @file references relative to the package directory."
       (user-error "No agent-shell config available; configure `agent-shell-preferred-agent-config' or start from an existing agent-shell buffer")))
 
 (defun meta-agent-shell-default-session-mode-function (config use-container use-current-dir directory)
-  "Return a default session mode id for CONFIG, or nil.
-Maps package-level startup policy to provider-specific session mode ids."
-  (meta-agent-shell--session-mode-id-for-policy
-   (map-elt config :identifier)
-   (meta-agent-shell--session-policy
-    config use-container use-current-dir directory)))
+  "Return a session mode id for CONFIG, or nil.
+Preserves provider-configured defaults unless meta-agent-shell has an
+explicit override from `meta-agent-shell-session-policy-function' or a
+matching `meta-agent-shell-safe-directory-prefixes' entry."
+  (pcase-let* ((`(,policy . ,source)
+                (meta-agent-shell--session-policy-with-source
+                 config use-container use-current-dir directory))
+               (mapped-mode-id
+                (meta-agent-shell--session-mode-id-for-policy
+                 (map-elt config :identifier)
+                 policy))
+               (configured-mode-id
+                (meta-agent-shell--configured-session-mode-id config)))
+    (cond
+     ((and (memq source '(:session-policy-function :safe-directory))
+           mapped-mode-id)
+      mapped-mode-id)
+     (configured-mode-id
+      configured-mode-id)
+     (mapped-mode-id
+      mapped-mode-id)
+     (t nil))))
 
 (defun meta-agent-shell--session-mode-id-for-policy (identifier policy)
   "Return session mode id for IDENTIFIER and POLICY, or nil."
@@ -524,15 +540,33 @@ others use `aggressive'."
       'safe
     'aggressive))
 
+(defun meta-agent-shell--session-policy-with-source (config use-container use-current-dir directory)
+  "Return the effective startup policy for CONFIG in DIRECTORY and its source.
+Returns a cons cell of the form (POLICY . SOURCE), where SOURCE is one of
+`:session-policy-function', `:safe-directory', or `:default'."
+  (let ((override (and meta-agent-shell-session-policy-function
+                       (funcall meta-agent-shell-session-policy-function
+                                config use-container use-current-dir directory))))
+    (cond
+     (override
+      (cons override :session-policy-function))
+     ((meta-agent-shell--directory-safe-p directory)
+      (cons 'safe :safe-directory))
+     (t
+      (cons 'aggressive :default)))))
+
 (defun meta-agent-shell--session-policy (config use-container use-current-dir directory)
   "Return the effective startup policy for CONFIG in DIRECTORY.
 Uses `meta-agent-shell-session-policy-function' when it returns non-nil,
 otherwise falls back to `meta-agent-shell--default-session-policy'."
-  (or (and meta-agent-shell-session-policy-function
-           (funcall meta-agent-shell-session-policy-function
-                    config use-container use-current-dir directory))
-      (meta-agent-shell--default-session-policy
-       config use-container use-current-dir directory)))
+  (car (meta-agent-shell--session-policy-with-source
+        config use-container use-current-dir directory)))
+
+(defun meta-agent-shell--configured-session-mode-id (config)
+  "Return CONFIG's current provider-defined session mode id, or nil."
+  (when-let ((mode-id-fn (map-elt config :default-session-mode-id)))
+    (when (functionp mode-id-fn)
+      (funcall mode-id-fn))))
 
 (defun meta-agent-shell--container-setting (key)
   "Return KEY from `meta-agent-shell-container-mode-settings'."

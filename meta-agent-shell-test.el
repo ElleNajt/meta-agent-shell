@@ -54,7 +54,7 @@
         (setq-local default-directory (or cwd-value "/tmp/test-project/"))
         (setq-local agent-shell--state
                     `(:agent-config ,config
-                      :outgoing-request-decorator ,outgoing-request-decorator)))
+                                    :outgoing-request-decorator ,outgoing-request-decorator)))
       buf))
   (defun agent-shell-get-config (_buffer)
     "Stub for current buffer config lookup."
@@ -142,7 +142,7 @@ Optional PROJECT-PATH sets the default-directory."
       ;; Mock agent-shell--state for status detection
       (setq-local agent-shell--state
                   '(:client (:process nil)
-                    :session (:mode-id "code"))))
+                            :session (:mode-id "code"))))
     (push buf meta-agent-shell-test--mock-buffers)
     buf))
 
@@ -666,7 +666,7 @@ Optional PROJECT-PATH sets the default-directory."
   (meta-agent-shell-test--with-clean-state
    (let ((meta-agent-shell-container-mode-settings
           '(:command-prefix ("claudebox" "--bash" "-c")
-            :path-resolver-function identity)))
+                            :path-resolver-function identity)))
      (meta-agent-shell-default-start-function '(4) "Worker")
      (let ((call (car meta-agent-shell-test--agent-shell-start-calls)))
        (should (equal '("claudebox" "--bash" "-c")
@@ -693,6 +693,35 @@ Optional PROJECT-PATH sets the default-directory."
             (mode-id-fn (map-elt (plist-get call :config) :default-session-mode-id)))
        (should (functionp mode-id-fn))
        (should (equal "default" (funcall mode-id-fn)))))))
+
+(ert-deftest meta-agent-shell-test-default-start-function-preserves-provider-mode-default ()
+  "Test provider-defined session mode defaults are preserved by default."
+  (meta-agent-shell-test--with-clean-state
+   (let ((meta-agent-shell-test--agent-shell-config
+          '((:identifier . codex)
+            (:buffer-name . "Codex")
+            (:default-session-mode-id . (lambda () "full-access"))))
+         (default-directory "/tmp/normal-project/"))
+     (meta-agent-shell-default-start-function 'use-current-dir "Worker")
+     (let* ((call (car meta-agent-shell-test--agent-shell-start-calls))
+            (mode-id-fn (map-elt (plist-get call :config) :default-session-mode-id)))
+       (should (functionp mode-id-fn))
+       (should (equal "full-access" (funcall mode-id-fn)))))))
+
+(ert-deftest meta-agent-shell-test-default-start-function-safe-directory-overrides-provider-default ()
+  "Test safe-directory policy overrides provider-defined aggressive defaults."
+  (meta-agent-shell-test--with-clean-state
+   (let ((meta-agent-shell-test--agent-shell-config
+          '((:identifier . codex)
+            (:buffer-name . "Codex")
+            (:default-session-mode-id . (lambda () "full-access"))))
+         (meta-agent-shell-safe-directory-prefixes '("/tmp/safe-root"))
+         (default-directory "/tmp/safe-root/project/"))
+     (meta-agent-shell-default-start-function 'use-current-dir "Worker")
+     (let* ((call (car meta-agent-shell-test--agent-shell-start-calls))
+            (mode-id-fn (map-elt (plist-get call :config) :default-session-mode-id)))
+       (should (functionp mode-id-fn))
+       (should (equal "auto" (funcall mode-id-fn)))))))
 
 (ert-deftest meta-agent-shell-test-default-start-function-codex-aggressive-mode ()
   "Test Codex uses the mapped aggressive mode id by default."
