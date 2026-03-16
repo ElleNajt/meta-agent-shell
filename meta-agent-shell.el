@@ -5,7 +5,7 @@
 ;; Author: Elle Najt
 ;; URL: https://github.com/ElleNajt/meta-agent-shell
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.33.1"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.46.1"))
 ;; Keywords: convenience, tools, ai
 
 ;; This file is not part of GNU Emacs.
@@ -67,9 +67,13 @@ If you've messaged the meta session within this time, heartbeat is delayed."
   :type 'string
   :group 'meta-agent-shell)
 
-(defcustom meta-agent-shell-start-function #'agent-shell
+(defcustom meta-agent-shell-start-function #'meta-agent-shell-default-start-function
   "Function to start a new agent-shell session.
-Should accept optional BUFFER-NAME as second argument for named agents."
+Defaults to `meta-agent-shell-default-start-function', a package-owned
+wrapper around `agent-shell-start' that preserves meta-agent-shell's
+buffer-naming and directory-selection behavior.
+
+Custom overrides should accept (ARG &optional BUFFER-NAME)."
   :type 'function
   :group 'meta-agent-shell)
 
@@ -77,6 +81,61 @@ Should accept optional BUFFER-NAME as second argument for named agents."
   "Arguments to pass to `meta-agent-shell-start-function'.
 These are passed as the first argument (e.g., prefix arg)."
   :type 'list
+  :group 'meta-agent-shell)
+
+(defcustom meta-agent-shell-container-mode-settings nil
+  "Container-mode settings used by `meta-agent-shell-default-start-function'.
+
+When non-nil, should be a plist supporting the following keys:
+
+- `:command-prefix'           Prefix command list/function for container mode.
+- `:path-resolver-function'   Path resolver function for container mode.
+
+When nil, container-mode branches preserve their mode structure but do not
+apply any container-specific overrides."
+  :type '(choice (const :tag "Disabled" nil)
+                 (plist :key-type symbol :value-type sexp))
+  :group 'meta-agent-shell)
+
+(defcustom meta-agent-shell-safe-directory-prefixes nil
+  "Directory prefixes that force `safe' startup policy.
+
+If the startup directory is under any listed prefix, the package treats the
+session as `safe' regardless of prefix arg.  This is intended for portable
+project-specific safety overrides such as the maintainer's secretary setup."
+  :type '(repeat directory)
+  :group 'meta-agent-shell)
+
+(defcustom meta-agent-shell-session-policy-function nil
+  "Optional function returning startup policy for a new session.
+
+Called with (CONFIG USE-CONTAINER USE-CURRENT-DIR DIRECTORY) and should
+return one of the symbols `safe', `aggressive', or nil.  A nil return falls
+back to `meta-agent-shell''s default policy logic.
+
+This is an advanced override.  Prefer `meta-agent-shell-safe-directory-prefixes'
+for common path-based safety rules."
+  :type '(choice (const :tag "Default policy" nil)
+                 function)
+  :group 'meta-agent-shell)
+
+(defcustom meta-agent-shell-session-mode-map
+  '((claude-code :safe "default" :aggressive "bypassPermissions")
+    (codex :safe "auto" :aggressive "full-access"))
+  "Mapping from provider identifier and package policy to session mode id.
+
+Each entry is of the form:
+
+  (IDENTIFIER :safe SAFE-MODE-ID :aggressive AGGRESSIVE-MODE-ID)
+
+Policies are computed by `meta-agent-shell' and then translated into
+provider-specific session mode ids using this map.  IDENTIFIER comes from
+the resolved agent config's `:identifier' entry."
+  :type '(repeat (list symbol
+                       (const :safe)
+                       (choice (const nil) string)
+                       (const :aggressive)
+                       (choice (const nil) string)))
   :group 'meta-agent-shell)
 
 (defcustom meta-agent-shell-config-file "~/.meta-agent-shell/config.org"
@@ -408,6 +467,164 @@ Expands @file references relative to the package directory."
                    (buffer-string))))
         (meta-agent-shell--expand-file-refs raw pkg-dir)))))
 
+(defun meta-agent-shell--package-directory ()
+  "Return the package directory for meta-agent-shell resources."
+  (let ((library-file
+         (or load-file-name
+             (and (fboundp 'symbol-file)
+                  (or (symbol-file 'meta-agent-shell--package-directory 'defun)
+                      (symbol-file 'meta-agent-shell-setup 'defun)))
+             (locate-library "meta-agent-shell.el"))))
+    (unless library-file
+      (error "Could not determine meta-agent-shell package directory"))
+    (file-name-directory (file-truename library-file))))
+
+(defun meta-agent-shell--resolve-start-config ()
+  "Resolve the base `agent-shell' config for starting a new session."
+  (or (and (fboundp 'agent-shell-get-config)
+           (derived-mode-p 'agent-shell-mode)
+           (agent-shell-get-config (current-buffer)))
+      (and (fboundp 'agent-shell--resolve-preferred-config)
+           (agent-shell--resolve-preferred-config))
+      (and (fboundp 'agent-shell-select-config)
+           (agent-shell-select-config :prompt "Start agent: "))
+      (user-error "No agent-shell config available; configure `agent-shell-preferred-agent-config' or start from an existing agent-shell buffer")))
+
+(defun meta-agent-shell-default-session-mode-function (config use-container use-current-dir directory)
+  "Return a session mode id for CONFIG, or nil.
+Preserves provider-configured defaults unless meta-agent-shell has an
+explicit override from `meta-agent-shell-session-policy-function' or a
+matching `meta-agent-shell-safe-directory-prefixes' entry."
+  (pcase-let* ((`(,policy . ,source)
+                (meta-agent-shell--session-policy-with-source
+                 config use-container use-current-dir directory))
+               (mapped-mode-id
+                (meta-agent-shell--session-mode-id-for-policy
+                 (map-elt config :identifier)
+                 policy))
+               (configured-mode-id
+                (meta-agent-shell--configured-session-mode-id config)))
+    (cond
+     ((and (memq source '(:session-policy-function :safe-directory))
+           mapped-mode-id)
+      mapped-mode-id)
+     (configured-mode-id
+      configured-mode-id)
+     (mapped-mode-id
+      mapped-mode-id)
+     (t nil))))
+
+(defun meta-agent-shell--session-mode-id-for-policy (identifier policy)
+  "Return session mode id for IDENTIFIER and POLICY, or nil."
+  (when-let ((entry (assq identifier meta-agent-shell-session-mode-map)))
+    (plist-get (cdr entry)
+               (pcase policy
+                 ('safe :safe)
+                 ('aggressive :aggressive)
+                 (_ nil)))))
+
+(defun meta-agent-shell--directory-safe-p (directory)
+  "Return non-nil when DIRECTORY is under a safe directory prefix."
+  (let ((expanded-directory (file-name-as-directory (expand-file-name directory))))
+    (cl-some (lambda (prefix)
+               (string-prefix-p
+                (file-name-as-directory (expand-file-name prefix))
+                expanded-directory))
+             meta-agent-shell-safe-directory-prefixes)))
+
+(defun meta-agent-shell--default-session-policy (_config _use-container _use-current-dir directory)
+  "Return the default package-level startup policy for DIRECTORY.
+Directories under `meta-agent-shell-safe-directory-prefixes' use `safe'; all
+others use `aggressive'."
+  (if (meta-agent-shell--directory-safe-p directory)
+      'safe
+    'aggressive))
+
+(defun meta-agent-shell--session-policy-with-source (config use-container use-current-dir directory)
+  "Return the effective startup policy for CONFIG in DIRECTORY and its source.
+Returns a cons cell of the form (POLICY . SOURCE), where SOURCE is one of
+`:session-policy-function', `:safe-directory', or `:default'."
+  (let ((override (and meta-agent-shell-session-policy-function
+                       (funcall meta-agent-shell-session-policy-function
+                                config use-container use-current-dir directory))))
+    (cond
+     (override
+      (cons override :session-policy-function))
+     ((meta-agent-shell--directory-safe-p directory)
+      (cons 'safe :safe-directory))
+     (t
+      (cons 'aggressive :default)))))
+
+(defun meta-agent-shell--session-policy (config use-container use-current-dir directory)
+  "Return the effective startup policy for CONFIG in DIRECTORY.
+Uses `meta-agent-shell-session-policy-function' when it returns non-nil,
+otherwise falls back to `meta-agent-shell--default-session-policy'."
+  (car (meta-agent-shell--session-policy-with-source
+        config use-container use-current-dir directory)))
+
+(defun meta-agent-shell--configured-session-mode-id (config)
+  "Return CONFIG's current provider-defined session mode id, or nil."
+  (when-let ((mode-id-fn (map-elt config :default-session-mode-id)))
+    (when (functionp mode-id-fn)
+      (funcall mode-id-fn))))
+
+(defun meta-agent-shell--container-setting (key)
+  "Return KEY from `meta-agent-shell-container-mode-settings'."
+  (when meta-agent-shell-container-mode-settings
+    (plist-get meta-agent-shell-container-mode-settings key)))
+
+(defun meta-agent-shell--call-start-function (&rest args)
+  "Call `meta-agent-shell-start-function' with ARGS and return a buffer.
+If the configured function does not return a buffer, fall back to the
+current buffer after the call."
+  (let ((result (apply meta-agent-shell-start-function args)))
+    (cond
+     ((bufferp result) result)
+     ((and (stringp result) (get-buffer result)) (get-buffer result))
+     (t (current-buffer)))))
+
+(defun meta-agent-shell-default-start-function (&optional arg buffer-name)
+  "Default start function used by `meta-agent-shell'.
+
+ARG supports these call patterns:
+- nil: normal mode, git root directory
+- \='(4): container mode, git root directory
+- \='(16): container mode, current directory
+- \='use-current-dir: normal mode, current directory (programmatic use)
+
+Optional BUFFER-NAME overrides the config buffer name."
+  (interactive "P")
+  (let* ((use-container (and (consp arg) (not (eq arg 'use-current-dir))))
+         (use-current-dir (or (equal arg '(16)) (eq arg 'use-current-dir)))
+         (directory default-directory)
+         (command-prefix (and use-container
+                              (meta-agent-shell--container-setting :command-prefix)))
+         (path-resolver (and use-container
+                             (meta-agent-shell--container-setting :path-resolver-function)))
+         (config (copy-tree (meta-agent-shell--resolve-start-config)))
+         (session-mode-id (meta-agent-shell-default-session-mode-function
+                           config use-container use-current-dir directory))
+         (agent-shell-cwd-function (when use-current-dir
+                                     (lambda () directory)))
+         (agent-shell-command-prefix (or command-prefix agent-shell-command-prefix))
+         (agent-shell-path-resolver-function (or path-resolver agent-shell-path-resolver-function)))
+    (when buffer-name
+      (setq config (map-insert config :buffer-name buffer-name)))
+    (when session-mode-id
+      (setq config (map-insert config :default-session-mode-id
+                               (lambda () session-mode-id))))
+    (let ((buf (agent-shell-start :config config)))
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (when use-current-dir
+            (setq-local agent-shell-cwd-function (lambda () directory)))
+          (when use-container
+            (when command-prefix
+              (setq-local agent-shell-command-prefix command-prefix))
+            (when path-resolver
+              (setq-local agent-shell-path-resolver-function path-resolver)))))
+      buf)))
+
 (defun meta-agent-shell--format-heartbeat ()
   "Format heartbeat message with session status and user's heartbeat.org.
 The heartbeat file supports @file references (relative to the file's directory)
@@ -502,6 +719,171 @@ Only sends if session is alive and cooldown has elapsed."
                       (map-elt request :params))))
     request))
 
+(defconst meta-agent-shell--setup-config-template
+  "# Meta-agent config - add @file references to include in the system prompt
+# Example:
+# @/absolute/path/to/priorities.org
+# @relative/path/from/here.org
+"
+  "Template written to `meta-agent-shell-config-file' during setup.")
+
+(defun meta-agent-shell--setup-support-directory ()
+  "Return the stable support directory for setup-managed assets."
+  (directory-file-name
+   (file-name-directory (expand-file-name meta-agent-shell-config-file))))
+
+(defun meta-agent-shell--copy-setup-file (source target created updated)
+  "Copy SOURCE to TARGET, updating CREATED and UPDATED lists.
+Returns a list of the form (CREATED UPDATED)."
+  (let* ((target-dir (file-name-directory target))
+         (source-modes (file-modes source))
+         (target-exists (file-exists-p target))
+         (target-modes (and target-exists (file-modes target)))
+         (target-content (and target-exists
+                              (with-temp-buffer
+                                (insert-file-contents target)
+                                (buffer-string))))
+         (source-content (with-temp-buffer
+                           (insert-file-contents source)
+                           (buffer-string))))
+    (unless (file-directory-p target-dir)
+      (make-directory target-dir t))
+    (cond
+     ((not target-exists)
+      (copy-file source target t)
+      (when source-modes
+        (set-file-modes target source-modes))
+      (setq created (cons target created)))
+     ((or (not (equal source-content target-content))
+          (not (equal source-modes target-modes)))
+      (copy-file source target t)
+      (when source-modes
+        (set-file-modes target source-modes))
+      (setq updated (cons target updated))))
+    (list created updated)))
+
+(defun meta-agent-shell--sync-setup-assets (support-dir created updated)
+  "Sync setup-managed assets into SUPPORT-DIR.
+CREATED and UPDATED track resulting file changes.
+Returns a list of the form (CREATED UPDATED)."
+  (let* ((package-dir (meta-agent-shell--package-directory))
+         (source-bin-dir (expand-file-name "bin" package-dir))
+         (target-bin-dir (expand-file-name "bin" support-dir))
+         (source-overview (expand-file-name "agent-overview.md" package-dir))
+         (target-overview (expand-file-name "agent-overview.md" support-dir)))
+    (unless (file-directory-p target-bin-dir)
+      (make-directory target-bin-dir t))
+    (dolist (source (directory-files source-bin-dir t "^[^.].*"))
+      (when (file-regular-p source)
+        (pcase-let ((`(,new-created ,new-updated)
+                     (meta-agent-shell--copy-setup-file
+                      source
+                      (expand-file-name (file-name-nondirectory source) target-bin-dir)
+                      created updated)))
+          (setq created new-created
+                updated new-updated))))
+    (pcase-let ((`(,new-created ,new-updated)
+                 (meta-agent-shell--copy-setup-file
+                  source-overview target-overview created updated)))
+      (setq created new-created
+            updated new-updated))
+    (list created updated)))
+
+(defun meta-agent-shell--format-setup-summary (created updated existing removed support-dir)
+  "Format a setup summary from CREATED, UPDATED, EXISTING, REMOVED, and SUPPORT-DIR."
+  (let ((agent-overview (expand-file-name "agent-overview.md" support-dir))
+        (bin-dir (expand-file-name "bin" support-dir)))
+    (with-temp-buffer
+      (insert "meta-agent-shell setup complete\n\n")
+      (insert "Created:\n")
+      (if created
+          (dolist (path created)
+            (insert (format "- %s\n" path)))
+        (insert "- Nothing created\n"))
+      (insert "\nUpdated:\n")
+      (if updated
+          (dolist (path updated)
+            (insert (format "- %s\n" path)))
+        (insert "- Nothing updated\n"))
+      (insert "\nLeft untouched:\n")
+      (if existing
+          (dolist (path existing)
+            (insert (format "- %s\n" path)))
+        (insert "- Nothing to report\n"))
+      (insert "\nRemoved legacy items:\n")
+      (if removed
+          (dolist (path removed)
+            (insert (format "- %s\n" path)))
+        (insert "- No legacy items removed\n"))
+      (insert "\nManual next steps:\n")
+      (insert (format "1. Add to your shell config (.bashrc/.zshrc):\n   export PATH=\"%s/bin:$PATH\"\n\n"
+                      support-dir))
+      (insert "2. Add the following line to your agent instructions file:\n")
+      (insert "   (for example, ~/.codex/AGENTS.md or ~/.claude/CLAUDE.md)\n")
+      (insert (format "   @%s\n\n" agent-overview))
+      (insert (format "3. Edit %s to add @file references for persistent meta-agent context.\n"
+                      (expand-file-name meta-agent-shell-config-file)))
+      (buffer-string))))
+
+(defun meta-agent-shell--display-setup-summary (summary)
+  "Display setup SUMMARY in a dedicated results buffer."
+  (let ((buf (get-buffer-create "*meta-agent-shell setup*")))
+    (with-current-buffer buf
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert summary)
+      (goto-char (point-min))
+      (view-mode 1))
+    (pop-to-buffer buf)))
+
+;;;###autoload
+(defun meta-agent-shell-setup ()
+  "Set up meta-agent-shell support files and directories.
+This replaces the filesystem work previously done by `./setup.sh'."
+  (interactive)
+  (let* ((meta-dir (expand-file-name meta-agent-shell-directory))
+         (legacy-claude (expand-file-name "CLAUDE.md" meta-dir))
+         (log-dir (expand-file-name meta-agent-shell-log-directory))
+         (config-file (expand-file-name meta-agent-shell-config-file))
+         (config-dir (file-name-directory config-file))
+         (support-dir (meta-agent-shell--setup-support-directory))
+         (created nil)
+         (updated nil)
+         (existing nil)
+         (removed nil))
+    (if (file-directory-p meta-dir)
+        (push meta-dir existing)
+      (make-directory meta-dir t)
+      (push meta-dir created))
+    (if (file-directory-p log-dir)
+        (push log-dir existing)
+      (make-directory log-dir t)
+      (push log-dir created))
+    (unless (file-directory-p config-dir)
+      (make-directory config-dir t))
+    (if (file-exists-p config-file)
+        (push config-file existing)
+      (with-temp-file config-file
+        (insert meta-agent-shell--setup-config-template))
+      (push config-file created))
+    (pcase-let ((`(,new-created ,new-updated)
+                 (meta-agent-shell--sync-setup-assets support-dir created updated)))
+      (setq created new-created
+            updated new-updated))
+    (cond
+     ((file-symlink-p legacy-claude)
+      (delete-file legacy-claude)
+      (push legacy-claude removed))
+     ((file-exists-p legacy-claude)
+      (push legacy-claude existing)))
+    (meta-agent-shell--display-setup-summary
+     (meta-agent-shell--format-setup-summary
+      (nreverse created)
+      (nreverse updated)
+      (nreverse existing)
+      (nreverse removed)
+      support-dir))))
+
 (defun meta-agent-shell-start ()
   "Start or switch to the meta-agent session.
 Only one meta session can be active at a time.
@@ -516,12 +898,15 @@ Config from `meta-agent-shell-config-file' is included."
            (base-instructions (meta-agent-shell--meta-instructions))
            (session-meta `((systemPrompt . ((append . ,base-instructions)))))
            (meta-agent-shell--pending-decorator
-            (meta-agent-shell--make-session-meta-decorator session-meta)))
+            (meta-agent-shell--make-session-meta-decorator session-meta))
+           (buf nil))
       ;; Ensure directory exists
       (make-directory default-directory t)
-      (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
+      (setq buf
+            (apply #'meta-agent-shell--call-start-function
+                   meta-agent-shell-start-function-args))
       ;; Track this as the meta buffer
-      (setq meta-agent-shell--buffer (current-buffer))
+      (setq meta-agent-shell--buffer buf)
       (message "Meta-agent session started in %s" default-directory))))
 
 ;;;###autoload
@@ -779,16 +1164,19 @@ If INITIAL-MESSAGE is provided, send it to the agent after starting.
 Returns the buffer name of the new session, or nil if folder doesn't exist."
   (let ((dir (expand-file-name folder)))
     (if (file-directory-p dir)
-        (let ((default-directory dir))
-          (apply meta-agent-shell-start-function meta-agent-shell-start-function-args)
+        (let ((default-directory dir)
+              (buf nil))
+          (setq buf
+                (apply #'meta-agent-shell--call-start-function
+                       meta-agent-shell-start-function-args))
           (when initial-message
             (run-at-time 0.5 nil
                          (lambda (buf msg)
                            (when (buffer-live-p buf)
                              (with-current-buffer buf
                                (shell-maker-submit :input msg))))
-                         (current-buffer) initial-message))
-          (buffer-name (current-buffer)))
+                         buf initial-message))
+          (buffer-name buf))
       (message "Directory does not exist: %s" dir)
       nil)))
 
@@ -804,9 +1192,9 @@ so that window splits happen relative to the spawner, not the current window.
 Returns the buffer name of the new session, or nil if folder doesn't exist.
 
 Note: `meta-agent-shell-start-function' must:
-- Accept (ARG BUFFER-NAME) where ARG is passed as first argument
+- Accept (ARG &optional BUFFER-NAME), or tolerate an omitted ARG
 - Recognize \\='use-current-dir as ARG to use `default-directory' without
-  triggering container mode (as opposed to \\='(16) which may enable containers)
+  treating it as container mode (unlike \\='(16), which may do so)
 - Accept BUFFER-NAME as the second argument for naming the buffer"
   (let ((dir (expand-file-name folder)))
     (if (file-directory-p dir)
@@ -840,39 +1228,44 @@ Note: `meta-agent-shell-start-function' must:
           ;; This may change selected window/buffer, so run before binding default-directory
           (run-hooks 'meta-agent-shell-before-spawn-hook)
           (let* ((default-directory dir)
-                 (project-name (file-name-nondirectory (directory-file-name dir)))
                  (buffer-name name)
                  ;; Signal "use current directory" without container mode
-                 (start-arg 'use-current-dir))
+                 (start-arg 'use-current-dir)
+                 (buf nil)
+                 (actual-buffer-name nil))
             ;; Pass buffer-name as second arg to start function
             ;; Workaround: agent-shell may fail if a buffer with this name was
             ;; recently killed (async cleanup race). Retry once after brief delay.
             (condition-case err
-                (funcall meta-agent-shell-start-function
-                         start-arg
-                         buffer-name)
+                (setq buf
+                      (meta-agent-shell--call-start-function
+                       start-arg
+                       buffer-name))
               (error
                (message "Agent start failed (%s), retrying after cleanup delay..." err)
                (sit-for 0.5)  ; allow pending events to process
-               (funcall meta-agent-shell-start-function
-                        start-arg
-                        buffer-name)))
+               (setq buf
+                     (meta-agent-shell--call-start-function
+                      start-arg
+                      buffer-name))))
+            (setq actual-buffer-name (buffer-name buf))
             ;; Auto-register if restrictions are enabled or explicitly requested
             (when (or auto-allow meta-agent-shell-restrict-targets)
-              (meta-agent-shell-allow-target buffer-name))
+              (meta-agent-shell-allow-target actual-buffer-name))
             ;; Run after-spawn hook (e.g., for post-spawn setup)
-            (run-hooks 'meta-agent-shell-after-spawn-hook)
+            (with-current-buffer buf
+              (run-hooks 'meta-agent-shell-after-spawn-hook))
             ;; Track initial task for killed agent persistence
             (when initial-message
-              (puthash (buffer-name (current-buffer)) initial-message
+              (puthash actual-buffer-name initial-message
                        meta-agent-shell--initial-tasks)
               (run-at-time 0.5 nil
                            (lambda (buf msg)
                              (when (buffer-live-p buf)
                                (with-current-buffer buf
                                  (shell-maker-submit :input msg))))
-                           (current-buffer) initial-message))
-            (buffer-name (current-buffer))))
+                           buf initial-message))
+            actual-buffer-name))
       (message "Directory does not exist: %s" dir)
       nil)))
 
@@ -1033,16 +1426,17 @@ outgoing-request-decorator, so they persist across context compaction."
              (buf nil))
         ;; Use the configured start function to create the buffer
         (condition-case err
-            (funcall meta-agent-shell-start-function
-                     (car meta-agent-shell-start-function-args)
-                     dispatcher-buffer-name)
+            (setq buf
+                  (meta-agent-shell--call-start-function
+                   (car meta-agent-shell-start-function-args)
+                   dispatcher-buffer-name))
           (error
            (message "Dispatcher start failed (%s), retrying after cleanup delay..." err)
            (sit-for 0.5)
-           (funcall meta-agent-shell-start-function
-                    (car meta-agent-shell-start-function-args)
-                    dispatcher-buffer-name)))
-        (setq buf (current-buffer))
+           (setq buf
+                 (meta-agent-shell--call-start-function
+                  (car meta-agent-shell-start-function-args)
+                  dispatcher-buffer-name))))
         ;; Register dispatcher
         (push (cons project-path buf) meta-agent-shell--dispatchers)
         (message "Dispatcher started for %s (instructions in system prompt)" project-name)
@@ -1083,7 +1477,7 @@ Prefix ARG is passed through to the start function."
                   (args (if arg
                             (cons arg (cdr meta-agent-shell-start-function-args))
                           meta-agent-shell-start-function-args)))
-              (apply meta-agent-shell-start-function args))
+              (apply #'meta-agent-shell--call-start-function args))
           ;; No dispatcher, start one
           (meta-agent-shell-start-dispatcher project-path))))))
 

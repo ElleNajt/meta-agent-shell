@@ -22,23 +22,15 @@ Plus:
 
 * Setup
 
-#+begin_src bash
-./setup.sh
-#+end_src
-
-This:
-1. Creates =~/.claude-meta/= directory
-2. Links the meta-agent CLAUDE.md
-3. Tells you what to add to your shell config and =~/.claude/CLAUDE.md=
-
-Then add to your Emacs config:
+First install =meta-agent-shell= from a local checkout or package recipe that includes
+the non-Elisp files this repo needs (=bin/=, =agent-overview.md=, =meta-claude.md=,
+=shared-tools.md=). Then add this to your Emacs config:
 
 #+begin_src elisp
 (use-package meta-agent-shell
   :after agent-shell
   :config
   (setq meta-agent-shell-heartbeat-file "~/heartbeat.org")
-  (setq meta-agent-shell-start-function #'agent-shell)  ; or your custom start function
 
   ;; Recommended keybindings under SPC o m
   ;; Unbind existing SPC o m (mu4e in Doom) first if needed
@@ -53,14 +45,84 @@ Then add to your Emacs config:
          :desc "STOP ALL AGENTS" "!" #'meta-agent-shell-big-red-button)))
 #+end_src
 
-| Keybinding  | Command                              | Description                     |
-|-------------+--------------------------------------+---------------------------------|
-| =SPC o m m= | ~meta-agent-shell-start~             | Meta-agent session (start/switch) |
+A Quelpa example of including the non-Elisp files:
+
+#+begin_src elisp
+:files (:defaults
+        ("bin" "bin/*")
+        "agent-overview.md"
+        "meta-claude.md"
+        "shared-tools.md")
+#+end_src
+
+Then run:
+
+#+begin_example
+M-x meta-agent-shell-setup
+#+end_example
+
+This:
+1. Creates =~/.claude-meta/= directory
+2. Links the meta-agent CLAUDE.md
+3. Tells you what to add to your shell config and =~/.claude/CLAUDE.md=
+
+* Startup wrapper
+
+By default, =meta-agent-shell= uses its own wrapper ~meta-agent-shell-default-start-function~
+to establish the expected behavior when starting meta sessions, dispatchers, and named agents.
+
+It accepts these call patterns:
+
+- no prefix: normal mode, project/git-root directory
+- ~C-u~: container mode, project/git-root directory
+- ~C-u C-u~: container mode, current buffer directory
+- internal ~'use-current-dir~: normal mode, current buffer directory
+
+Container mode does nothing by default but allows for additional configuration.
+
+The ~'use-current-dir~ input is for package-internal programmatic starts such as
+named agents; users normally use the prefix forms above.
+
+** Minimal customization
+
+Use =agent-shell= config selection for the base agent, and customize the
+two package-owned extension points when needed:
+
+#+begin_src elisp
+(use-package meta-agent-shell
+  :after agent-shell
+  :config
+  (setq agent-shell-preferred-agent-config 'claude-code)
+
+  ;; Optional: define what container mode means on your machine.
+  (setq meta-agent-shell-container-mode-settings
+        '(:command-prefix ("claudebox" "--bash" "-c")
+          :path-resolver-function agent-shell--resolve-devcontainer-path))
+
+  ;; Optional: force safe startup policy in specific directories.
+  ;; For Claude Code, safe maps to the provider's "default" mode.
+  (setq meta-agent-shell-safe-directory-prefixes
+        '("~/code/secretary")))
+#+end_src
+
+Safe-directory overrides apply regardless of prefix arg.  Prefixes control
+container/current-directory behavior; policy controls provider-specific session
+mode selection (aggressive vs. safe).
+
+`meta-agent-shell-session-policy-function' can override the package's
+`safe' vs `aggressive' policy decision directly.
+
+Prefix args apply to start commands: ~C-u~ selects container + project root,
+and ~C-u C-u~ selects container + current buffer directory.
+
+| Keybinding  | Command                               | Description                       |
+|-------------+---------------------------------------+-----------------------------------|
+| =SPC o m m= | ~meta-agent-shell-start~              | Meta-agent session (start/switch) |
 | =SPC o m d= | ~meta-agent-shell-jump-to-dispatcher~ | Project dispatcher (start/switch) |
-| =SPC o m h= | ~meta-agent-shell-heartbeat-start~   | Start heartbeat timer           |
-| =SPC o m H= | ~meta-agent-shell-heartbeat-stop~    | Stop heartbeat timer            |
-| =SPC o m s= | ~meta-agent-shell-heartbeat-send-now~ | Send heartbeat immediately      |
-| =SPC o m != | ~meta-agent-shell-big-red-button~    | STOP ALL AGENTS                 |
+| =SPC o m h= | ~meta-agent-shell-heartbeat-start~    | Start heartbeat timer             |
+| =SPC o m H= | ~meta-agent-shell-heartbeat-stop~     | Stop heartbeat timer              |
+| =SPC o m s= | ~meta-agent-shell-heartbeat-send-now~ | Send heartbeat immediately        |
+| =SPC o m != | ~meta-agent-shell-big-red-button~     | STOP ALL AGENTS                   |
 
 * Workflow 1: Project Dispatchers
 
