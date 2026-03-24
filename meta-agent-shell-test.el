@@ -101,6 +101,29 @@
 (defvar meta-agent-shell-test--temp-dirs nil
   "List of temp directories created during tests.")
 
+(defvar meta-agent-shell-test--captured-start-context nil
+  "Captured value of `meta-agent-shell-start-context' during tests.")
+
+(defvar meta-agent-shell-test--captured-start-directory nil
+  "Captured value of `meta-agent-shell-start-directory' during tests.")
+
+(defvar meta-agent-shell-test--captured-start-buffer-name nil
+  "Captured value of `meta-agent-shell-start-buffer-name' during tests.")
+
+(defvar meta-agent-shell-test--captured-after-start-buffer nil
+  "Captured buffer from `meta-agent-shell-after-start-hook' during tests.")
+
+(defun meta-agent-shell-test--capture-start-context ()
+  "Record the current dynamic start variables."
+  (setq meta-agent-shell-test--captured-start-context meta-agent-shell-start-context
+        meta-agent-shell-test--captured-start-directory meta-agent-shell-start-directory
+        meta-agent-shell-test--captured-start-buffer-name meta-agent-shell-start-buffer-name))
+
+(defun meta-agent-shell-test--capture-after-start-buffer ()
+  "Record the buffer seen by `meta-agent-shell-after-start-hook'."
+  (setq meta-agent-shell-test--captured-after-start-buffer (current-buffer))
+  (meta-agent-shell-test--capture-start-context))
+
 (defmacro meta-agent-shell-test--with-clean-state (&rest body)
   "Execute BODY with fresh meta-agent-shell state."
   (declare (indent 0))
@@ -110,6 +133,19 @@
          (meta-agent-shell--dispatchers nil)
          (meta-agent-shell--allowed-targets nil)
          (meta-agent-shell-restrict-targets nil)
+         (meta-agent-shell-before-start-hook nil)
+         (meta-agent-shell-after-start-hook nil)
+         (meta-agent-shell-start-context nil)
+         (meta-agent-shell-start-directory nil)
+         (meta-agent-shell-start-buffer-name nil)
+         (meta-agent-shell-start-session-policy nil)
+         (meta-agent-shell-start-command-prefix nil)
+         (meta-agent-shell-start-path-resolver-function nil)
+         (meta-agent-shell-start-config nil)
+         (meta-agent-shell-test--captured-start-context nil)
+         (meta-agent-shell-test--captured-start-directory nil)
+         (meta-agent-shell-test--captured-start-buffer-name nil)
+         (meta-agent-shell-test--captured-after-start-buffer nil)
          (meta-agent-shell-test--agent-shell-start-calls nil)
          (meta-agent-shell-test--agent-shell-config
           '((:identifier . test-agent)
@@ -597,13 +633,15 @@ Optional PROJECT-PATH sets the default-directory."
                 (buffer-string))))
      (with-current-buffer "*meta-agent-shell setup*"
        (should (string-match-p
-                (regexp-quote (format "export PATH=\"%s/bin:$PATH\"" support-dir))
+                (regexp-quote
+                 (format "meta-agent-shell will add its support script directory %s/bin to Emacs PATH and exec-path automatically."
+                         support-dir))
                 (buffer-string)))
        (should (string-match-p
                 (regexp-quote (format "@%s" support-overview))
                 (buffer-string)))
        (should (string-match-p
-                (regexp-quote "~/.claude/CLAUDE.md")
+                (regexp-quote "~/.codex/AGENTS.md or ~/.claude/CLAUDE.md")
                 (buffer-string)))))))
 
 (ert-deftest meta-agent-shell-test-setup-is-idempotent-and-removes-legacy-symlink ()
@@ -661,38 +699,44 @@ Optional PROJECT-PATH sets the default-directory."
      (let ((call (car meta-agent-shell-test--agent-shell-start-calls)))
        (should (equal "/tmp/current-dir/" (plist-get call :cwd-function-value)))))))
 
-(ert-deftest meta-agent-shell-test-default-start-function-container-mode-settings ()
-  "Test container-mode settings are applied in container branches only."
+(ert-deftest meta-agent-shell-test-default-start-function-before-start-hook-command-overrides ()
+  "Test `meta-agent-shell-before-start-hook' can set command overrides."
   (meta-agent-shell-test--with-clean-state
-   (let ((meta-agent-shell-container-mode-settings
-          '(:command-prefix ("claudebox" "--bash" "-c")
-                            :path-resolver-function identity)))
-     (meta-agent-shell-default-start-function '(4) "Worker")
+   (let ((meta-agent-shell-before-start-hook
+          (list (lambda ()
+                  (setq meta-agent-shell-start-command-prefix
+                        '("claudebox" "--bash" "-c")
+                        meta-agent-shell-start-path-resolver-function #'identity)))))
+     (meta-agent-shell-default-start-function nil "Worker")
      (let ((call (car meta-agent-shell-test--agent-shell-start-calls)))
        (should (equal '("claudebox" "--bash" "-c")
                       (plist-get call :command-prefix)))
-       (should (eq #'identity (plist-get call :path-resolver-function))))
-     (setq meta-agent-shell-test--agent-shell-start-calls nil)
-     (meta-agent-shell-default-start-function 'use-current-dir "Worker")
-     (let ((call (car meta-agent-shell-test--agent-shell-start-calls)))
-       (should-not (plist-get call :command-prefix))
-       (should-not (plist-get call :path-resolver-function))))))
+       (should (eq #'identity (plist-get call :path-resolver-function)))))))
 
-(ert-deftest meta-agent-shell-test-default-start-function-session-policy-override ()
-  "Test session policy override can force safe mode without replacing the wrapper."
+(ert-deftest meta-agent-shell-test-default-start-function-session-policy-translation ()
+  "Test session policy translation uses `meta-agent-shell-session-mode-map'."
   (meta-agent-shell-test--with-clean-state
    (let ((meta-agent-shell-test--agent-shell-config
           '((:identifier . claude-code)
             (:buffer-name . "Claude Code")))
-         (meta-agent-shell-session-policy-function
-          (lambda (_config _use-container _use-current-dir _directory)
-            'safe))
+         (meta-agent-shell-before-start-hook
+          (list (lambda ()
+                  (setq meta-agent-shell-start-session-policy 'safe))))
          (default-directory "/tmp/normal-project/"))
      (meta-agent-shell-default-start-function 'use-current-dir "Worker")
      (let* ((call (car meta-agent-shell-test--agent-shell-start-calls))
             (mode-id-fn (map-elt (plist-get call :config) :default-session-mode-id)))
        (should (functionp mode-id-fn))
        (should (equal "default" (funcall mode-id-fn)))))))
+
+(ert-deftest meta-agent-shell-test-default-start-function-after-start-hook-runs-in-started-buffer ()
+  "Test `meta-agent-shell-after-start-hook' runs in the started buffer."
+  (meta-agent-shell-test--with-clean-state
+   (let ((meta-agent-shell-after-start-hook
+          '(meta-agent-shell-test--capture-after-start-buffer)))
+     (let ((buf (meta-agent-shell-default-start-function nil "Worker")))
+       (should (eq buf meta-agent-shell-test--captured-after-start-buffer))
+       (should (equal "Worker" meta-agent-shell-test--captured-start-buffer-name))))))
 
 (ert-deftest meta-agent-shell-test-default-start-function-preserves-provider-mode-default ()
   "Test provider-defined session mode defaults are preserved by default."
@@ -708,33 +752,53 @@ Optional PROJECT-PATH sets the default-directory."
        (should (functionp mode-id-fn))
        (should (equal "full-access" (funcall mode-id-fn)))))))
 
-(ert-deftest meta-agent-shell-test-default-start-function-safe-directory-overrides-provider-default ()
-  "Test safe-directory policy overrides provider-defined aggressive defaults."
-  (meta-agent-shell-test--with-clean-state
-   (let ((meta-agent-shell-test--agent-shell-config
-          '((:identifier . codex)
-            (:buffer-name . "Codex")
-            (:default-session-mode-id . (lambda () "full-access"))))
-         (meta-agent-shell-safe-directory-prefixes '("/tmp/safe-root"))
-         (default-directory "/tmp/safe-root/project/"))
-     (meta-agent-shell-default-start-function 'use-current-dir "Worker")
-     (let* ((call (car meta-agent-shell-test--agent-shell-start-calls))
-            (mode-id-fn (map-elt (plist-get call :config) :default-session-mode-id)))
-       (should (functionp mode-id-fn))
-       (should (equal "auto" (funcall mode-id-fn)))))))
-
-(ert-deftest meta-agent-shell-test-default-start-function-codex-aggressive-mode ()
-  "Test Codex uses the mapped aggressive mode id by default."
+(ert-deftest meta-agent-shell-test-default-start-function-does-not-inject-mode-without-policy ()
+  "Test the wrapper leaves mode selection alone when no policy is supplied."
   (meta-agent-shell-test--with-clean-state
    (let ((meta-agent-shell-test--agent-shell-config
           '((:identifier . codex)
             (:buffer-name . "Codex")))
          (default-directory "/tmp/normal-project/"))
      (meta-agent-shell-default-start-function 'use-current-dir "Worker")
-     (let* ((call (car meta-agent-shell-test--agent-shell-start-calls))
-            (mode-id-fn (map-elt (plist-get call :config) :default-session-mode-id)))
-       (should (functionp mode-id-fn))
-       (should (equal "full-access" (funcall mode-id-fn)))))))
+     (let ((call (car meta-agent-shell-test--agent-shell-start-calls)))
+       (should-not (map-elt (plist-get call :config) :default-session-mode-id))))))
+
+(ert-deftest meta-agent-shell-test-start-named-agent-binds-start-context ()
+  "Test named-agent startup binds `meta-agent-shell-start-context'."
+  (meta-agent-shell-test--with-clean-state
+   (let ((project-dir (meta-agent-shell-test--create-temp-dir))
+         (meta-agent-shell-start-function #'meta-agent-shell-default-start-function)
+         (meta-agent-shell-before-start-hook
+          '(meta-agent-shell-test--capture-start-context)))
+     (meta-agent-shell-start-named-agent project-dir "Worker")
+     (should (eq 'named-agent meta-agent-shell-test--captured-start-context))
+     (should (equal project-dir meta-agent-shell-test--captured-start-directory))
+     (should (equal "Worker" meta-agent-shell-test--captured-start-buffer-name)))))
+
+(ert-deftest meta-agent-shell-test-start-dispatcher-binds-start-context ()
+  "Test dispatcher startup binds `meta-agent-shell-start-context'."
+  (meta-agent-shell-test--with-clean-state
+   (let ((project-dir (meta-agent-shell-test--create-temp-dir))
+         (meta-agent-shell-start-function #'meta-agent-shell-default-start-function)
+         (meta-agent-shell-before-start-hook
+          '(meta-agent-shell-test--capture-start-context)))
+     (meta-agent-shell-start-dispatcher project-dir)
+     (should (eq 'dispatcher meta-agent-shell-test--captured-start-context))
+     (should (equal project-dir meta-agent-shell-test--captured-start-directory))
+     (should (equal "Dispatcher" meta-agent-shell-test--captured-start-buffer-name)))))
+
+(ert-deftest meta-agent-shell-test-start-meta-binds-start-context ()
+  "Test meta startup binds `meta-agent-shell-start-context'."
+  (meta-agent-shell-test--with-clean-state
+   (let ((meta-agent-shell-directory
+          (file-name-as-directory (meta-agent-shell-test--create-temp-dir)))
+         (meta-agent-shell-start-function #'meta-agent-shell-default-start-function)
+         (meta-agent-shell-before-start-hook
+          '(meta-agent-shell-test--capture-start-context)))
+     (meta-agent-shell-start)
+     (should (eq 'meta meta-agent-shell-test--captured-start-context))
+     (should (equal (expand-file-name meta-agent-shell-directory)
+                    meta-agent-shell-test--captured-start-directory)))))
 
 (ert-deftest meta-agent-shell-test-start-named-agent-uses-actual-buffer-name ()
   "Test named-agent bookkeeping uses the actual created buffer name."

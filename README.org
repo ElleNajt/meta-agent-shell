@@ -63,57 +63,51 @@ M-x meta-agent-shell-setup
 
 This:
 1. Creates =~/.claude-meta/= directory
-2. Links the meta-agent CLAUDE.md
-3. Tells you what to add to your shell config and =~/.claude/CLAUDE.md=
+2. Syncs support scripts and prompts into =~/.meta-agent-shell/=
+3. Adds the support script directory to Emacs =PATH= and =exec-path=
+4. Tells you what to add to your agent instructions file
 
 * Startup wrapper
 
 By default, =meta-agent-shell= uses its own wrapper ~meta-agent-shell-default-start-function~
 to establish the expected behavior when starting meta sessions, dispatchers, and named agents.
 
-It accepts these call patterns:
+For most custom behavior, keep the package-owned wrapper and use
+~meta-agent-shell-before-start-hook~ or ~meta-agent-shell-after-start-hook~.
 
-- no prefix: normal mode, project/git-root directory
-- ~C-u~: container mode, project/git-root directory
-- ~C-u C-u~: container mode, current buffer directory
-- internal ~'use-current-dir~: normal mode, current buffer directory
+The wrapper binds dynamic context variables:
 
-Container mode does nothing by default but allows for additional configuration.
+| Name                                            | Description                                                                                                                                    |
+|-------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------|
+| ~meta-agent-shell-start-context~                | Package-managed start context, typically ~meta~, ~dispatcher~, or ~named-agent~.                                                               |
+| ~meta-agent-shell-start-directory~              | Directory the session will start in; the wrapper binds ~default-directory~ to this value before calling ~agent-shell-start~.                   |
+| ~meta-agent-shell-start-buffer-name~            | Optional buffer name override inserted into the resolved ~agent-shell~ config before startup.                                                  |
+| ~meta-agent-shell-start-session-policy~         | Abstract startup policy, ~safe~ or ~aggressive~, translated through ~meta-agent-shell-session-mode-map~ into a provider-specific session mode. |
+| ~meta-agent-shell-start-command-prefix~         | Optional command prefix to install for the new session, for example ~claudebox --bash -c~.                                                     |
+| ~meta-agent-shell-start-path-resolver-function~ | Optional path resolver function installed for the new session buffer.                                                                          |
+| ~meta-agent-shell-start-config~                 | Base ~agent-shell~ config selected by the wrapper; hooks can replace or adjust it before buffer-name and session-policy overrides are applied. |
 
-The ~'use-current-dir~ input is for package-internal programmatic starts such as
-named agents; users normally use the prefix forms above.
-
-** Minimal customization
-
-Use =agent-shell= config selection for the base agent, and customize the
-two package-owned extension points when needed:
+** Customization example
 
 #+begin_src elisp
-(use-package meta-agent-shell
-  :after agent-shell
-  :config
-  (setq agent-shell-preferred-agent-config 'claude-code)
-
-  ;; Optional: define what container mode means on your machine.
-  (setq meta-agent-shell-container-mode-settings
-        '(:command-prefix ("claudebox" "--bash" "-c")
-          :path-resolver-function agent-shell--resolve-devcontainer-path))
-
-  ;; Optional: force safe startup policy in specific directories.
-  ;; For Claude Code, safe maps to the provider's "default" mode.
-  (setq meta-agent-shell-safe-directory-prefixes
-        '("~/code/secretary")))
+(add-hook
+ 'meta-agent-shell-before-start-hook
+ (defun my/meta-agent-shell-start-customizations ()
+   (pcase meta-agent-shell-start-context
+     ('dispatcher
+      (setq meta-agent-shell-start-session-policy 'safe))
+     ('named-agent
+      (when (string-match-p "/secretary/" meta-agent-shell-start-directory)
+        (setq meta-agent-shell-start-session-policy 'safe)
+        (setq meta-agent-shell-start-command-prefix
+              '("claudebox" "--bash" "-c"))
+        (setq meta-agent-shell-start-path-resolver-function
+              #'agent-shell--resolve-devcontainer-path)))
+     ('meta
+      (setq meta-agent-shell-start-buffer-name "Meta Claude")))))
 #+end_src
 
-Safe-directory overrides apply regardless of prefix arg.  Prefixes control
-container/current-directory behavior; policy controls provider-specific session
-mode selection (aggressive vs. safe).
-
-`meta-agent-shell-session-policy-function' can override the package's
-`safe' vs `aggressive' policy decision directly.
-
-Prefix args apply to start commands: ~C-u~ selects container + project root,
-and ~C-u C-u~ selects container + current buffer directory.
+~meta-agent-shell-start-function~ also allows one to replace the wrapper entirely.
 
 | Keybinding  | Command                               | Description                       |
 |-------------+---------------------------------------+-----------------------------------|
