@@ -89,7 +89,7 @@ These are passed as the first argument (e.g., prefix arg)."
 Hooks can inspect or update the dynamic variables
 `meta-agent-shell-start-context', `meta-agent-shell-start-directory',
 `meta-agent-shell-start-buffer-name', `meta-agent-shell-start-session-policy',
-`meta-agent-shell-start-command-prefix',
+`meta-agent-shell-start-session-mode-id', `meta-agent-shell-start-command-prefix',
 `meta-agent-shell-start-path-resolver-function', and
 `meta-agent-shell-start-config'."
   :type 'hook
@@ -104,19 +104,21 @@ remain available for post-start setup."
   :group 'meta-agent-shell)
 
 (defcustom meta-agent-shell-session-mode-map
-  '((claude-code :safe "default" :aggressive "bypassPermissions")
-    (codex :safe "auto" :aggressive "full-access"))
+  '((claude-code :safe "dontAsk" :auto "default" :aggressive "bypassPermissions")
+    (codex :safe "read-only" :auto "auto" :aggressive "full-access"))
   "Mapping from provider identifier and abstract policy to session mode id.
 
 Each entry is of the form:
 
-  (IDENTIFIER :safe SAFE-MODE-ID :aggressive AGGRESSIVE-MODE-ID)
+  (IDENTIFIER :safe SAFE-MODE-ID :auto AUTO-MODE-ID :aggressive AGGRESSIVE-MODE-ID)
 
 When a start spec supplies `:session-policy', `meta-agent-shell' translates
 that abstract value into the provider-specific mode id using this map.
 IDENTIFIER comes from the resolved agent config's `:identifier' entry."
   :type '(repeat (list symbol
                        (const :safe)
+                       (choice (const nil) string)
+                       (const :auto)
                        (choice (const nil) string)
                        (const :aggressive)
                        (choice (const nil) string)))
@@ -208,9 +210,17 @@ resolved `agent-shell' config before calling `agent-shell-start'.")
 (defvar meta-agent-shell-start-session-policy nil
   "Dynamically bound abstract session policy for the current session start.
 
-Supported values are `safe', `aggressive', or nil. When non-nil, the default
-wrapper translates it to a provider-specific session mode id using
+Supported values are `safe', `auto', `aggressive', or nil. The default wrapper
+binds this to `auto' for package-managed starts, and translates any non-nil
+value to a provider-specific session mode id using
 `meta-agent-shell-session-mode-map'.")
+
+(defvar meta-agent-shell-start-session-mode-id nil
+  "Dynamically bound raw session mode override for the current session start.
+
+When non-nil, this takes precedence over
+`meta-agent-shell-start-session-policy'. Hooks may bind or set this to a
+provider-specific mode id such as `plan' or \"plan\".")
 
 (defvar meta-agent-shell-start-command-prefix nil
   "Dynamically bound command prefix override for the current session start.")
@@ -222,7 +232,7 @@ wrapper translates it to a provider-specific session mode id using
   "Dynamically bound base `agent-shell' config for the current session start.
 
 `meta-agent-shell-before-start-hook' may replace or adjust this config before
-the default wrapper applies buffer-name or session-policy overrides.")
+the default wrapper applies buffer-name or session mode overrides.")
 
 (defun meta-agent-shell--inject-decorator (orig-fn &rest args)
   "Call ORIG-FN with ARGS.
@@ -511,13 +521,24 @@ Expands @file references relative to the package directory."
            (agent-shell-select-config :prompt "Start agent: "))
       (user-error "No agent-shell config available; configure `agent-shell-preferred-agent-config' or start from an existing agent-shell buffer")))
 
-(defun meta-agent-shell-default-session-mode-function (config session-policy)
-  "Return a session mode id for CONFIG and SESSION-POLICY, or nil.
-When SESSION-POLICY is nil, preserve the provider's configured default mode."
-  (and session-policy
-       (meta-agent-shell--session-mode-id-for-policy
-        (map-elt config :identifier)
-        session-policy)))
+(defun meta-agent-shell--normalize-session-mode-id (mode-id)
+  "Normalize MODE-ID to a provider mode-id string, or nil."
+  (cond
+   ((null mode-id) nil)
+   ((stringp mode-id) mode-id)
+   ((symbolp mode-id) (symbol-name mode-id))
+   (t nil)))
+
+(defun meta-agent-shell-default-session-mode-function
+    (config session-policy explicit-mode-id)
+  "Return a session mode id for CONFIG, SESSION-POLICY, and EXPLICIT-MODE-ID.
+When EXPLICIT-MODE-ID is non-nil, it takes precedence over SESSION-POLICY.
+When both are nil, preserve the provider's configured default mode."
+  (or (meta-agent-shell--normalize-session-mode-id explicit-mode-id)
+      (and session-policy
+           (meta-agent-shell--session-mode-id-for-policy
+            (map-elt config :identifier)
+            session-policy))))
 
 (defun meta-agent-shell--session-mode-id-for-policy (identifier policy)
   "Return session mode id for IDENTIFIER and POLICY, or nil."
@@ -525,6 +546,7 @@ When SESSION-POLICY is nil, preserve the provider's configured default mode."
     (plist-get (cdr entry)
                (pcase policy
                  ('safe :safe)
+                 ('auto :auto)
                  ('aggressive :aggressive)
                  (_ nil)))))
 
@@ -550,7 +572,8 @@ Optional BUFFER-NAME overrides the config buffer name."
   (let* ((use-current-dir (eq arg 'use-current-dir))
          (meta-agent-shell-start-directory default-directory)
          (meta-agent-shell-start-buffer-name buffer-name)
-         (meta-agent-shell-start-session-policy nil)
+         (meta-agent-shell-start-session-policy 'auto)
+         (meta-agent-shell-start-session-mode-id nil)
          (meta-agent-shell-start-command-prefix nil)
          (meta-agent-shell-start-path-resolver-function nil)
          (meta-agent-shell-start-config
@@ -561,7 +584,9 @@ Optional BUFFER-NAME overrides the config buffer name."
            (path-resolver meta-agent-shell-start-path-resolver-function)
            (config (copy-tree meta-agent-shell-start-config))
            (session-mode-id (meta-agent-shell-default-session-mode-function
-                             config meta-agent-shell-start-session-policy))
+                             config
+                             meta-agent-shell-start-session-policy
+                             meta-agent-shell-start-session-mode-id))
            (agent-shell-cwd-function (when use-current-dir
                                        (lambda () directory)))
            (agent-shell-command-prefix

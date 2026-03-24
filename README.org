@@ -48,11 +48,12 @@ the non-Elisp files this repo needs (=bin/=, =agent-overview.md=, =meta-claude.m
 A Quelpa example of including the non-Elisp files:
 
 #+begin_src elisp
-:files (:defaults
-        ("bin" "bin/*")
-        "agent-overview.md"
-        "meta-claude.md"
-        "shared-tools.md")
+  :files (:defaults
+          ("bin" "bin/*")
+          "agent-overview.md"
+          "meta-claude.md"
+          "shared-tools.md"
+          "dispatcher-instructions.md")
 #+end_src
 
 Then run:
@@ -82,10 +83,11 @@ The wrapper binds dynamic context variables:
 | ~meta-agent-shell-start-context~                | Package-managed start context, typically ~meta~, ~dispatcher~, or ~named-agent~.                                                               |
 | ~meta-agent-shell-start-directory~              | Directory the session will start in; the wrapper binds ~default-directory~ to this value before calling ~agent-shell-start~.                   |
 | ~meta-agent-shell-start-buffer-name~            | Optional buffer name override inserted into the resolved ~agent-shell~ config before startup.                                                  |
-| ~meta-agent-shell-start-session-policy~         | Abstract startup policy, ~safe~ or ~aggressive~, translated through ~meta-agent-shell-session-mode-map~ into a provider-specific session mode. |
+| ~meta-agent-shell-start-session-policy~         | Abstract startup policy, ~safe~, ~auto~ (default), or ~aggressive~. Translated through ~meta-agent-shell-session-mode-map~ for equivalent behavior across models. |
+| ~meta-agent-shell-start-session-mode-id~        | Optional provider mode id override. When non-nil, this takes precedence over ~meta-agent-shell-start-session-policy~ and is passed through directly. |
 | ~meta-agent-shell-start-command-prefix~         | Optional command prefix to install for the new session, for example ~claudebox --bash -c~.                                                     |
 | ~meta-agent-shell-start-path-resolver-function~ | Optional path resolver function installed for the new session buffer.                                                                          |
-| ~meta-agent-shell-start-config~                 | Base ~agent-shell~ config selected by the wrapper; hooks can replace or adjust it before buffer-name and session-policy overrides are applied. |
+| ~meta-agent-shell-start-config~                 | Base ~agent-shell~ config selected by the wrapper; hooks can replace or adjust it before buffer-name and session mode overrides are applied. |
 
 ** Customization example
 
@@ -94,17 +96,24 @@ The wrapper binds dynamic context variables:
  'meta-agent-shell-before-start-hook
  (defun my/meta-agent-shell-start-customizations ()
    (pcase meta-agent-shell-start-context
-     ('dispatcher
-      (setq meta-agent-shell-start-session-policy 'safe))
      ('named-agent
       (when (string-match-p "/secretary/" meta-agent-shell-start-directory)
         (setq meta-agent-shell-start-session-policy 'safe)
         (setq meta-agent-shell-start-command-prefix
               '("claudebox" "--bash" "-c"))
         (setq meta-agent-shell-start-path-resolver-function
-              #'agent-shell--resolve-devcontainer-path)))
+              #'agent-shell--resolve-devcontainer-path))
+      (when current-prefix-arg
+        (setq meta-agent-shell-start-session-mode-id 'plan)))
      ('meta
       (setq meta-agent-shell-start-buffer-name "Meta Claude")))))
+
+(add-hook
+ 'meta-agent-shell-after-start-hook
+ (defun my/meta-agent-shell-dispatcher-bootstrap ()
+   (when (eq meta-agent-shell-start-context 'dispatcher)
+     (shell-maker-submit
+      :input "Read ~/.policies/policy.org for inter-agent policies."))))
 #+end_src
 
 ~meta-agent-shell-start-function~ also allows one to replace the wrapper entirely.
